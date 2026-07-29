@@ -2,8 +2,10 @@
 import SwiftUI
 
 @MainActor
-final class SettingsWindowController: NSWindowController {
+final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static let shared = SettingsWindowController()
+
+    private var permissionRefreshTask: Task<Void, Never>?
 
     private init() {
         let window = NSWindow(
@@ -19,6 +21,7 @@ final class SettingsWindowController: NSWindowController {
             rootView: SettingsRootView(environment: AppEnvironment.shared)
         )
         super.init(window: window)
+        window.delegate = self
     }
 
     @available(*, unavailable)
@@ -27,8 +30,33 @@ final class SettingsWindowController: NSWindowController {
     }
 
     func present() {
-        NSApp.activate()
+        NSApp.setActivationPolicy(.regular)
+        AppEnvironment.shared.refreshPermissions()
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        startPermissionRefresh()
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        AppEnvironment.shared.refreshPermissions()
+        startPermissionRefresh()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        permissionRefreshTask?.cancel()
+        permissionRefreshTask = nil
+        NSApp.setActivationPolicy(.accessory)
+    }
+
+    private func startPermissionRefresh() {
+        guard permissionRefreshTask == nil else { return }
+        permissionRefreshTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard self != nil else { return }
+                AppEnvironment.shared.refreshPermissions()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
     }
 }

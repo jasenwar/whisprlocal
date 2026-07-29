@@ -19,6 +19,7 @@ final class AppEnvironment {
 
     private let monitor = GlobalFnMonitor()
     private let overlay = OverlayPanelController()
+    private let statusItem = StatusItemController()
     private(set) var modelStatus: ModelStatus = .missing
     private(set) var setupProgress: Double?
     private(set) var setupMessage: String?
@@ -62,6 +63,7 @@ final class AppEnvironment {
 
     func start() {
         NSApp.setActivationPolicy(.accessory)
+        statusItem.setEnabled(preferences.showMenuBarIcon)
         monitor.start()
         refreshPermissions()
         Task {
@@ -100,6 +102,11 @@ final class AppEnvironment {
             try? await Task.sleep(for: .seconds(1))
             refreshPermissions()
         }
+    }
+
+    func setMenuBarIconEnabled(_ enabled: Bool) {
+        preferences.showMenuBarIcon = enabled
+        statusItem.setEnabled(enabled)
     }
 
     func downloadModel() {

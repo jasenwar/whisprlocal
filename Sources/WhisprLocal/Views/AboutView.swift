@@ -12,7 +12,7 @@ struct AboutView: View {
                 .font(.title.bold())
             Text("Private, native, local dictation for macOS.")
                 .foregroundStyle(.secondary)
-            Text("No accounts, billing, telemetry, updater, Docker, Dock icon, or menu-bar icon.")
+            Text("No accounts, billing, telemetry, updater, or Docker. The Dock icon is temporary and the menu-bar icon is optional.")
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 440)
             Button("Quit WhisprLocal") {

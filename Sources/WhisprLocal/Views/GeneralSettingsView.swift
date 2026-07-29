@@ -37,6 +37,21 @@ struct GeneralSettingsView: View {
                 )
             }
 
+            Section("Visibility") {
+                Toggle(
+                    "Show WhisprLocal in the menu bar",
+                    isOn: Binding(
+                        get: { preferences.showMenuBarIcon },
+                        set: { enabled in
+                            environment.setMenuBarIconEnabled(enabled)
+                        }
+                    )
+                )
+                Text("The Dock icon appears while Settings is open. With the menu-bar icon off, dictation continues running invisibly.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Local model") {
                 HStack {
                     Label(

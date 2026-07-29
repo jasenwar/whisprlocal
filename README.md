@@ -6,8 +6,10 @@ clean the text with Apple's on-device Foundation Model, and paste it into the
 application that was already focused.
 
 The application has no account system, billing, cloud API, analytics, updater,
-Docker service, Dock icon, or menu-bar item. It stores raw and corrected text
-locally for recovery, but never stores microphone audio.
+or Docker service. Its Dock icon appears only while Settings is open, and an
+optional menu-bar icon can reopen Settings or quit. With the menu-bar icon off,
+dictation continues running invisibly. WhisprLocal stores raw and corrected
+text locally for recovery, but never stores microphone audio.
 
 ## Requirements
 
