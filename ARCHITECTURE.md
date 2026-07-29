@@ -29,12 +29,14 @@ the transcript: raw Parakeet text is the fallback.
 
 ## Process lifecycle
 
-- `LSUIElement` and accessory activation keep the application out of the Dock.
-- There is no `NSStatusItem` or `MenuBarExtra`.
+- `LSUIElement` and accessory activation keep the application out of the Dock
+  while Settings is closed.
+- Settings temporarily switches to regular activation so the app appears in the
+  Dock. An optional `NSStatusItem` can reopen Settings or quit.
 - A nonactivating `NSPanel` appears only for transient dictation state.
 - Manual launch and reopen present Settings.
-- The embedded `WhisprLocalLoginHelper` starts the main executable with
-  `--background`, producing no window.
+- `SMAppService.mainApp` registers launch at login. The login launch Apple event
+  suppresses Settings so startup remains invisible.
 
 ## Local data
 
@@ -43,11 +45,6 @@ the transcript: raw Parakeet text is the fallback.
 - `transcriptions`
 - `dictionary`
 - `snippets`
-- `migration_metadata`
-
-The legacy importer opens OpenWhispr SQLite data read-only and imports active
-text, dictionary entries, and snippets once. It does not read, copy, change, or
-delete legacy audio.
 
 ## Network boundary
 

@@ -17,22 +17,6 @@ settings:
     DEVELOPMENT_TEAM: LWHJ76XFS5
     CODE_SIGN_IDENTITY: Apple Development
 targets:
-  WhisprLocalLoginHelper:
-    type: application
-    platform: macOS
-    sources:
-      - path: Sources/WhisprLocalLoginHelper
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.jasenguerra.whisprlocal.loginhelper
-        PRODUCT_NAME: WhisprLocalLoginHelper
-        INFOPLIST_FILE: Config/LoginHelper-Info.plist
-        GENERATE_INFOPLIST_FILE: false
-        SKIP_INSTALL: true
-        ENABLE_HARDENED_RUNTIME: true
-      configs:
-        Release:
-          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: false
   WhisprLocal:
     type: application
     platform: macOS
@@ -41,8 +25,6 @@ targets:
     dependencies:
       - package: SherpaRuntime
         product: SherpaRuntime
-      - target: WhisprLocalLoginHelper
-        embed: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jasenguerra.whisprlocal
@@ -71,15 +53,6 @@ targets:
             mv "$framework/Resources" "$TARGET_TEMP_DIR/onnxruntime-source-resources-$RANDOM"
             ln -s Versions/Current/Resources "$framework/Resources"
           fi
-    postBuildScripts:
-      - name: Embed login helper
-        basedOnDependencyAnalysis: false
-        script: |
-          destination="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LoginItems"
-          mkdir -p "$destination"
-          /usr/bin/ditto "$BUILT_PRODUCTS_DIR/WhisprLocalLoginHelper.app" "$destination/WhisprLocalLoginHelper.app"
-          identity="${EXPANDED_CODE_SIGN_IDENTITY:--}"
-          /usr/bin/codesign --force --sign "$identity" --timestamp=none "$destination/WhisprLocalLoginHelper.app"
   WhisprLocalTests:
     type: bundle.unit-test
     platform: macOS
