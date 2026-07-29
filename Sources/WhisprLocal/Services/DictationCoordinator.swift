@@ -70,12 +70,9 @@ final class DictationCoordinator {
         dictationLogger.info("Fn press received; preparing capture")
         transition(to: .listening)
         beginMediaPause(for: token)
-        play(named: "Tink")
 
         processingTask = Task { [weak self] in
             guard let self else { return }
-            async let transcriberWarmup: Void = transcriptionEngine.prewarm()
-            async let cleanupWarmup: Void = cleanupEngine.prewarm()
             let permitted = await permissions.requestMicrophone()
             guard !Task.isCancelled, token == recordingToken else { return }
             guard permitted else {
@@ -93,12 +90,17 @@ final class DictationCoordinator {
                         "Audio capture active after \(startupDelay, format: .fixed(precision: 3), privacy: .public)s"
                     )
                 }
+                play(named: "Tink")
             } catch {
                 dictationLogger.error(
                     "Audio capture start failed: \(error.localizedDescription, privacy: .public)"
                 )
                 fail(error)
+                return
             }
+
+            async let transcriberWarmup: Void = transcriptionEngine.prewarm()
+            async let cleanupWarmup: Void = cleanupEngine.prewarm()
             _ = await (transcriberWarmup, cleanupWarmup)
         }
     }
