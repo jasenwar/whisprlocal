@@ -1,6 +1,28 @@
 import Foundation
 import Observation
 
+enum OverlayPosition: String, CaseIterable, Identifiable, Sendable {
+    case topLeft
+    case topCenter
+    case topRight
+    case bottomLeft
+    case bottomCenter
+    case bottomRight
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .topLeft: "Top Left"
+        case .topCenter: "Top Center"
+        case .topRight: "Top Right"
+        case .bottomLeft: "Bottom Left"
+        case .bottomCenter: "Bottom Center"
+        case .bottomRight: "Bottom Right"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AppPreferences {
@@ -9,6 +31,7 @@ final class AppPreferences {
         static let sounds = "sounds"
         static let cleanupEnabled = "cleanupEnabled"
         static let showMenuBarIcon = "showMenuBarIcon"
+        static let overlayPosition = "overlayPosition"
         static let didShowCleanupWarning = "didShowCleanupWarning"
     }
 
@@ -30,6 +53,10 @@ final class AppPreferences {
         didSet { defaults.set(showMenuBarIcon, forKey: Key.showMenuBarIcon) }
     }
 
+    var overlayPosition: OverlayPosition {
+        didSet { defaults.set(overlayPosition.rawValue, forKey: Key.overlayPosition) }
+    }
+
     var didShowCleanupWarning: Bool {
         didSet { defaults.set(didShowCleanupWarning, forKey: Key.didShowCleanupWarning) }
     }
@@ -41,12 +68,16 @@ final class AppPreferences {
             Key.sounds: true,
             Key.cleanupEnabled: true,
             Key.showMenuBarIcon: false,
+            Key.overlayPosition: OverlayPosition.topCenter.rawValue,
             Key.didShowCleanupWarning: false
         ])
         autoPaste = defaults.bool(forKey: Key.autoPaste)
         sounds = defaults.bool(forKey: Key.sounds)
         cleanupEnabled = defaults.bool(forKey: Key.cleanupEnabled)
         showMenuBarIcon = defaults.bool(forKey: Key.showMenuBarIcon)
+        overlayPosition = OverlayPosition(
+            rawValue: defaults.string(forKey: Key.overlayPosition) ?? ""
+        ) ?? .topCenter
         didShowCleanupWarning = defaults.bool(forKey: Key.didShowCleanupWarning)
     }
 }

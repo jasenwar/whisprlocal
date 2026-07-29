@@ -22,7 +22,7 @@ final class OverlayPanelController {
         panel.ignoresMouseEvents = true
     }
 
-    func update(for state: DictationState) {
+    func update(for state: DictationState, position: OverlayPosition) {
         guard state != .idle else {
             panel.orderOut(nil)
             return
@@ -32,18 +32,43 @@ final class OverlayPanelController {
         let size = hosting.view.fittingSize
         panel.contentViewController = hosting
         panel.setContentSize(size)
-        position(size: size)
+        placePanel(size: size, at: position)
         panel.orderFrontRegardless()
     }
 
-    private func position(size: NSSize) {
+    private func placePanel(size: NSSize, at position: OverlayPosition) {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
             ?? NSScreen.main
         guard let visible = screen?.visibleFrame else { return }
-        panel.setFrameOrigin(NSPoint(
-            x: visible.midX - size.width / 2,
-            y: visible.maxY - size.height - 42
-        ))
+        panel.setFrameOrigin(position.origin(for: size, in: visible))
+    }
+}
+
+extension OverlayPosition {
+    func origin(
+        for size: NSSize,
+        in visibleFrame: NSRect,
+        margin: CGFloat = 42
+    ) -> NSPoint {
+        let x: CGFloat
+        switch self {
+        case .topLeft, .bottomLeft:
+            x = visibleFrame.minX + margin
+        case .topCenter, .bottomCenter:
+            x = visibleFrame.midX - size.width / 2
+        case .topRight, .bottomRight:
+            x = visibleFrame.maxX - size.width - margin
+        }
+
+        let y: CGFloat
+        switch self {
+        case .topLeft, .topCenter, .topRight:
+            y = visibleFrame.maxY - size.height - margin
+        case .bottomLeft, .bottomCenter, .bottomRight:
+            y = visibleFrame.minY + margin
+        }
+
+        return NSPoint(x: x, y: y)
     }
 }

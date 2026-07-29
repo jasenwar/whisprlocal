@@ -1,7 +1,43 @@
+@preconcurrency import AVFoundation
 import XCTest
 @testable import WhisprLocal
 
 final class AudioAndEngineTests: XCTestCase {
+    func testAudioTapHandlerAcceptsBufferOffMainActor() async throws {
+        let accumulator = AudioSampleAccumulator()
+        let expected = [Float](repeating: 0.25, count: 1_024)
+        accumulator.reset(sampleRate: 48_000)
+        let format = try XCTUnwrap(
+            AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: 48_000,
+                channels: 1,
+                interleaved: false
+            )
+        )
+        let buffer = try XCTUnwrap(
+            AVAudioPCMBuffer(
+                pcmFormat: format,
+                frameCapacity: AVAudioFrameCount(expected.count)
+            )
+        )
+        buffer.frameLength = buffer.frameCapacity
+        let channel = try XCTUnwrap(buffer.floatChannelData?[0])
+        expected.withUnsafeBufferPointer { source in
+            channel.update(from: source.baseAddress!, count: expected.count)
+        }
+        let sendableBuffer = SendableAudioBuffer(buffer)
+        let handler = AudioTapHandler(accumulator: accumulator)
+
+        await Task.detached {
+            handler.receive(sendableBuffer.value, AVAudioTime())
+        }.value
+
+        let captured = accumulator.snapshot()
+        XCTAssertEqual(captured.samples, expected)
+        XCTAssertEqual(captured.sampleRate, 48_000)
+    }
+
     func testResamplingProducesExpectedLength() {
         let input = Array(repeating: Float(0.25), count: 48_000)
         let output = AudioCaptureService.resample(input, from: 48_000, to: 16_000)
@@ -43,5 +79,13 @@ final class AudioAndEngineTests: XCTestCase {
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    }
+}
+
+private final class SendableAudioBuffer: @unchecked Sendable {
+    let value: AVAudioPCMBuffer
+
+    init(_ value: AVAudioPCMBuffer) {
+        self.value = value
     }
 }
