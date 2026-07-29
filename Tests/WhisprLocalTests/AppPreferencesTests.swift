@@ -31,6 +31,19 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(reloaded.overlayPosition, .bottomCenter)
     }
 
+    func testPauseMediaDefaultsOnAndPersists() {
+        let suiteName = "WhisprLocalTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let preferences = AppPreferences(defaults: defaults)
+        XCTAssertTrue(preferences.pauseMediaDuringDictation)
+
+        preferences.pauseMediaDuringDictation = false
+        let reloaded = AppPreferences(defaults: defaults)
+        XCTAssertFalse(reloaded.pauseMediaDuringDictation)
+    }
+
     func testBottomCenterOverlayOriginUsesVisibleFrame() {
         let visibleFrame = NSRect(x: 100, y: 50, width: 1_200, height: 800)
         let size = NSSize(width: 240, height: 64)
