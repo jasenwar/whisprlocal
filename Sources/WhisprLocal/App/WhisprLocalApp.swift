@@ -9,5 +9,13 @@ struct WhisprLocalApp: App {
             SettingsRootView(environment: AppEnvironment.shared)
                 .frame(minWidth: 720, minHeight: 520)
         }
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    SettingsWindowController.shared.present()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+        }
     }
 }
