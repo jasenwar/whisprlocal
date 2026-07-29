@@ -4,9 +4,10 @@ import SwiftUI
 struct AboutView: View {
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "waveform.badge.mic")
-                .font(.system(size: 56))
-                .foregroundStyle(.blue)
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 88, height: 88)
             Text("WhisprLocal")
                 .font(.title.bold())
             Text("Private, native, local dictation for macOS.")
