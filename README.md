@@ -16,6 +16,10 @@ Each dictation uses the input device currently selected as the macOS system
 default. For example, it uses AirPods when their microphone is selected in
 Sound settings and the built-in microphone when that is selected instead.
 
+The **Pause media while dictating** setting pauses the active macOS Now Playing
+session when recording starts and resumes it when recording finishes or is
+cancelled. Media that was already paused is left paused.
+
 ## Requirements
 
 - Apple-silicon Mac running macOS 26 or newer

@@ -44,7 +44,8 @@ final class AppEnvironment {
             dictionaryStore: dictionary,
             snippetStore: snippets,
             preferences: preferences,
-            permissions: permissions
+            permissions: permissions,
+            mediaPlayback: MediaPlaybackService()
         )
         coordinator.onStateChange = { [weak overlay, weak preferences] state in
             guard let preferences else { return }

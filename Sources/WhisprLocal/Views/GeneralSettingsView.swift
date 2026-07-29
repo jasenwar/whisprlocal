@@ -19,6 +19,10 @@ struct GeneralSettingsView: View {
                 Text("Pressing any other key while Fn is held cancels recording, so normal Fn shortcuts continue to work.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle(
+                    "Pause media while dictating",
+                    isOn: $preferences.pauseMediaDuringDictation
+                )
                 Toggle("Play start and finish sounds", isOn: $preferences.sounds)
                 Toggle("Paste automatically", isOn: $preferences.autoPaste)
                 Toggle("Conservative Apple Intelligence cleanup", isOn: $preferences.cleanupEnabled)

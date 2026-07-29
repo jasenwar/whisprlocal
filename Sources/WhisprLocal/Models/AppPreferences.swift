@@ -29,6 +29,7 @@ final class AppPreferences {
     private enum Key {
         static let autoPaste = "autoPaste"
         static let sounds = "sounds"
+        static let pauseMediaDuringDictation = "pauseMediaDuringDictation"
         static let cleanupEnabled = "cleanupEnabled"
         static let showMenuBarIcon = "showMenuBarIcon"
         static let overlayPosition = "overlayPosition"
@@ -43,6 +44,15 @@ final class AppPreferences {
 
     var sounds: Bool {
         didSet { defaults.set(sounds, forKey: Key.sounds) }
+    }
+
+    var pauseMediaDuringDictation: Bool {
+        didSet {
+            defaults.set(
+                pauseMediaDuringDictation,
+                forKey: Key.pauseMediaDuringDictation
+            )
+        }
     }
 
     var cleanupEnabled: Bool {
@@ -66,6 +76,7 @@ final class AppPreferences {
         defaults.register(defaults: [
             Key.autoPaste: true,
             Key.sounds: true,
+            Key.pauseMediaDuringDictation: true,
             Key.cleanupEnabled: true,
             Key.showMenuBarIcon: false,
             Key.overlayPosition: OverlayPosition.topCenter.rawValue,
@@ -73,6 +84,9 @@ final class AppPreferences {
         ])
         autoPaste = defaults.bool(forKey: Key.autoPaste)
         sounds = defaults.bool(forKey: Key.sounds)
+        pauseMediaDuringDictation = defaults.bool(
+            forKey: Key.pauseMediaDuringDictation
+        )
         cleanupEnabled = defaults.bool(forKey: Key.cleanupEnabled)
         showMenuBarIcon = defaults.bool(forKey: Key.showMenuBarIcon)
         overlayPosition = OverlayPosition(

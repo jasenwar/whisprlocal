@@ -22,8 +22,10 @@ final class DictationCoordinator {
     private let snippetStore: SnippetStore
     private let preferences: AppPreferences
     private let permissions: PermissionService
+    private let mediaPlayback: any MediaPlaybackControlling
     private var targetApplication: NSRunningApplication?
     private var processingTask: Task<Void, Never>?
+    private var mediaPauseTask: Task<Void, Never>?
     private var recordingToken = UUID()
 
     init(
@@ -36,7 +38,8 @@ final class DictationCoordinator {
         dictionaryStore: DictionaryStore,
         snippetStore: SnippetStore,
         preferences: AppPreferences,
-        permissions: PermissionService
+        permissions: PermissionService,
+        mediaPlayback: any MediaPlaybackControlling
     ) {
         self.audio = audio
         self.transcriptionEngine = transcriptionEngine
@@ -48,6 +51,7 @@ final class DictationCoordinator {
         self.snippetStore = snippetStore
         self.preferences = preferences
         self.permissions = permissions
+        self.mediaPlayback = mediaPlayback
     }
 
     func beginListening() {
@@ -56,6 +60,7 @@ final class DictationCoordinator {
         recordingToken = UUID()
         let token = recordingToken
         transition(to: .listening)
+        beginMediaPause(for: token)
         play(named: "Tink")
 
         processingTask = Task { [weak self] in
@@ -81,6 +86,7 @@ final class DictationCoordinator {
         guard state == .listening else { return }
         processingTask?.cancel()
         let samples = audio.stop()
+        endMediaPause(for: recordingToken)
         transition(to: .transcribing)
         play(named: "Pop")
         processingTask = Task { [weak self] in
@@ -92,6 +98,7 @@ final class DictationCoordinator {
         guard state.isBusy else { return }
         processingTask?.cancel()
         audio.cancel()
+        endMediaPause(for: recordingToken)
         transition(to: .cancelled)
         play(named: "Funk")
         settleToIdle()
@@ -175,6 +182,7 @@ final class DictationCoordinator {
 
     private func fail(_ error: Error) {
         audio.cancel()
+        endMediaPause(for: recordingToken)
         transition(to: .failed(error.localizedDescription))
         play(named: "Basso")
         settleToIdle()
@@ -202,5 +210,21 @@ final class DictationCoordinator {
     private func play(named name: String) {
         guard preferences.sounds else { return }
         NSSound(named: NSSound.Name(name))?.play()
+    }
+
+    private func beginMediaPause(for token: UUID) {
+        guard preferences.pauseMediaDuringDictation else { return }
+        mediaPauseTask = Task { [mediaPlayback] in
+            await mediaPlayback.beginDictation(token)
+        }
+    }
+
+    private func endMediaPause(for token: UUID) {
+        let pauseTask = mediaPauseTask
+        mediaPauseTask = nil
+        Task { [mediaPlayback] in
+            await pauseTask?.value
+            await mediaPlayback.endDictation(token)
+        }
     }
 }
