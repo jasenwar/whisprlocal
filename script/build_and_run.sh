@@ -55,7 +55,20 @@ case "$mode" in
     lldb "$derived_data/Build/Products/Debug/WhisprLocal.app/Contents/MacOS/WhisprLocal"
     ;;
   log|logs)
-    log stream --style compact --predicate 'process == "WhisprLocal"'
+    /usr/bin/log stream --style compact --predicate 'process == "WhisprLocal"'
+    ;;
+  telemetry)
+    /usr/bin/log stream \
+      --style compact \
+      --level info \
+      --predicate 'subsystem == "com.jasenguerra.whisprlocal" && (category == "AudioCapture" || category == "Transcription" || category == "Dictation")'
+    ;;
+  diagnostics)
+    /usr/bin/log show \
+      --last "${2:-10m}" \
+      --style compact \
+      --info \
+      --predicate 'subsystem == "com.jasenguerra.whisprlocal" && (category == "AudioCapture" || category == "Transcription" || category == "Dictation")'
     ;;
   test)
     generate_project
@@ -74,7 +87,7 @@ case "$mode" in
     /usr/libexec/PlistBuddy -c "Print :LSUIElement" "$app/Contents/Info.plist"
     ;;
   *)
-    echo "Usage: $0 {build|release|run|debug|log|test|verify}" >&2
+    echo "Usage: $0 {build|release|run|debug|log|telemetry|diagnostics|test|verify}" >&2
     exit 2
     ;;
 esac

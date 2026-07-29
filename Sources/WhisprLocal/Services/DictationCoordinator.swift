@@ -1,6 +1,12 @@
 @preconcurrency import AppKit
 import Foundation
 import Observation
+import OSLog
+
+private let dictationLogger = Logger(
+    subsystem: "com.jasenguerra.whisprlocal",
+    category: "Dictation"
+)
 
 @MainActor
 @Observable
@@ -27,6 +33,7 @@ final class DictationCoordinator {
     private var processingTask: Task<Void, Never>?
     private var mediaPauseTask: Task<Void, Never>?
     private var recordingToken = UUID()
+    private var listeningRequestedAt: ContinuousClock.Instant?
 
     init(
         audio: AudioCaptureService,
@@ -59,6 +66,8 @@ final class DictationCoordinator {
         targetApplication = NSWorkspace.shared.frontmostApplication
         recordingToken = UUID()
         let token = recordingToken
+        listeningRequestedAt = .now
+        dictationLogger.info("Fn press received; preparing capture")
         transition(to: .listening)
         beginMediaPause(for: token)
         play(named: "Tink")
@@ -70,12 +79,24 @@ final class DictationCoordinator {
             let permitted = await permissions.requestMicrophone()
             guard !Task.isCancelled, token == recordingToken else { return }
             guard permitted else {
+                dictationLogger.error("Microphone permission was denied")
                 fail(WhisprLocalError.microphoneDenied)
                 return
             }
             do {
                 try audio.start()
+                if let listeningRequestedAt {
+                    let startupDelay = (
+                        ContinuousClock.now - listeningRequestedAt
+                    ).timeInterval
+                    dictationLogger.info(
+                        "Audio capture active after \(startupDelay, format: .fixed(precision: 3), privacy: .public)s"
+                    )
+                }
             } catch {
+                dictationLogger.error(
+                    "Audio capture start failed: \(error.localizedDescription, privacy: .public)"
+                )
                 fail(error)
             }
             _ = await (transcriberWarmup, cleanupWarmup)
@@ -84,8 +105,14 @@ final class DictationCoordinator {
 
     func finishListening() {
         guard state == .listening else { return }
+        dictationLogger.info(
+            "Fn release received; recorderActive=\(self.audio.isRecording, privacy: .public)"
+        )
         processingTask?.cancel()
         let samples = audio.stop()
+        dictationLogger.info(
+            "Sending \(samples.count, privacy: .public) samples to transcription"
+        )
         endMediaPause(for: recordingToken)
         transition(to: .transcribing)
         play(named: "Pop")
@@ -96,6 +123,7 @@ final class DictationCoordinator {
 
     func cancel() {
         guard state.isBusy else { return }
+        dictationLogger.info("Dictation cancelled")
         processingTask?.cancel()
         audio.cancel()
         endMediaPause(for: recordingToken)
@@ -181,6 +209,9 @@ final class DictationCoordinator {
     }
 
     private func fail(_ error: Error) {
+        dictationLogger.error(
+            "Dictation failed in state=\(self.state.label, privacy: .public): \(error.localizedDescription, privacy: .public)"
+        )
         audio.cancel()
         endMediaPause(for: recordingToken)
         transition(to: .failed(error.localizedDescription))
@@ -192,9 +223,15 @@ final class DictationCoordinator {
         do {
             try machine.transition(to: next)
             state = next
+            dictationLogger.info(
+                "State changed to \(next.label, privacy: .public)"
+            )
             onStateChange?(next)
         } catch {
             state = .failed(error.localizedDescription)
+            dictationLogger.error(
+                "Invalid state transition: \(error.localizedDescription, privacy: .public)"
+            )
             onStateChange?(state)
         }
     }

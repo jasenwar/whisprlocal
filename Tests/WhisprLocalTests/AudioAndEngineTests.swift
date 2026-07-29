@@ -3,6 +3,17 @@ import XCTest
 @testable import WhisprLocal
 
 final class AudioAndEngineTests: XCTestCase {
+    func testAudioSignalMetricsDescribeAudibleSamples() {
+        let samples: [Float] = [0, 0.001, -0.002, 0.004]
+        let metrics = AudioSignalMetrics(samples: samples)
+
+        XCTAssertEqual(metrics.sampleCount, 4)
+        XCTAssertEqual(metrics.peak, 0.004, accuracy: 0.000_001)
+        XCTAssertGreaterThan(metrics.rms, 0.002)
+        XCTAssertEqual(metrics.activeFraction, 0.75, accuracy: 0.000_001)
+        XCTAssertEqual(metrics.duration(sampleRate: 4), 1)
+    }
+
     func testAudioTapHandlerAcceptsBufferOffMainActor() async throws {
         let accumulator = AudioSampleAccumulator()
         let expected = [Float](repeating: 0.25, count: 1_024)

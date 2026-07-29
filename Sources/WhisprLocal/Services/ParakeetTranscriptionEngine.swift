@@ -1,5 +1,11 @@
 import Foundation
+import OSLog
 import SherpaRuntime
+
+private let transcriptionLogger = Logger(
+    subsystem: "com.jasenguerra.whisprlocal",
+    category: "Transcription"
+)
 
 actor ParakeetTranscriptionEngine: TranscriptionEngine {
     private let modelManager: ModelManager
@@ -17,11 +23,22 @@ actor ParakeetTranscriptionEngine: TranscriptionEngine {
         sampleRate: Int,
         hotwords: [String]
     ) async throws -> Transcript {
+        let metrics = AudioSignalMetrics(samples: samples)
+        transcriptionLogger.info(
+            "Transcription input: samples=\(samples.count, privacy: .public) duration=\(metrics.duration(sampleRate: Double(sampleRate)), format: .fixed(precision: 3), privacy: .public)s rms=\(metrics.rms, format: .fixed(precision: 6), privacy: .public) peak=\(metrics.peak, format: .fixed(precision: 6), privacy: .public)"
+        )
         guard samples.count >= sampleRate / 5 else {
+            transcriptionLogger.error(
+                "Rejected recording as too short: samples=\(samples.count, privacy: .public)"
+            )
             throw WhisprLocalError.recordingTooShort
         }
-        let rms = sqrt(samples.reduce(0) { $0 + $1 * $1 } / Float(samples.count))
-        guard rms > 0.0008 else { throw WhisprLocalError.noSpeech }
+        guard metrics.rms > 0.0008 else {
+            transcriptionLogger.error(
+                "Rejected recording below speech threshold: rms=\(metrics.rms, format: .fixed(precision: 6), privacy: .public) threshold=0.000800"
+            )
+            throw WhisprLocalError.noSpeech
+        }
 
         try await ensureRecognizer()
         guard let recognizer = recognizer?.pointer else {
@@ -51,18 +68,30 @@ actor ParakeetTranscriptionEngine: TranscriptionEngine {
         }
         SherpaOnnxDecodeOfflineStream(recognizer, stream)
         guard let result = SherpaOnnxGetOfflineStreamResult(stream) else {
+            transcriptionLogger.error("Recognizer returned no result object")
             throw WhisprLocalError.transcriptionFailed
         }
         defer { SherpaOnnxDestroyOfflineRecognizerResult(result) }
         guard let textPointer = result.pointee.text else {
+            transcriptionLogger.error(
+                "Recognizer result had no text pointer despite audible input"
+            )
             throw WhisprLocalError.noSpeech
         }
         let text = String(cString: textPointer)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { throw WhisprLocalError.noSpeech }
+        guard !text.isEmpty else {
+            transcriptionLogger.error(
+                "Recognizer returned empty text despite audible input"
+            )
+            throw WhisprLocalError.noSpeech
+        }
 
         scheduleRelease()
         let duration = ContinuousClock.now - started
+        transcriptionLogger.info(
+            "Transcription succeeded: characterCount=\(text.count, privacy: .public) processingSeconds=\(duration.timeInterval, format: .fixed(precision: 3), privacy: .public)"
+        )
         return Transcript(
             text: text,
             engine: "sherpa-onnx \(sherpaOnnxPinnedVersion) / Parakeet Unified English",
