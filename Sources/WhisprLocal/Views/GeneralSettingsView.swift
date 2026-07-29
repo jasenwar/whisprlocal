@@ -47,6 +47,11 @@ struct GeneralSettingsView: View {
                         }
                     )
                 )
+                Picker("Overlay position", selection: $preferences.overlayPosition) {
+                    ForEach(OverlayPosition.allCases) { position in
+                        Text(position.title).tag(position)
+                    }
+                }
                 Text("The Dock icon appears while Settings is open. With the menu-bar icon off, dictation continues running invisibly.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

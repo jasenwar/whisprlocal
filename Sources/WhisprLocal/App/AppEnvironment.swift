@@ -46,8 +46,9 @@ final class AppEnvironment {
             preferences: preferences,
             permissions: permissions
         )
-        coordinator.onStateChange = { [weak overlay] state in
-            overlay?.update(for: state)
+        coordinator.onStateChange = { [weak overlay, weak preferences] state in
+            guard let preferences else { return }
+            overlay?.update(for: state, position: preferences.overlayPosition)
         }
         monitor.onPress = { [weak coordinator] in
             coordinator?.beginListening()
