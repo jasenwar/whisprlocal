@@ -1,0 +1,125 @@
+import SwiftUI
+
+struct GeneralSettingsView: View {
+    @Bindable var environment: AppEnvironment
+    @Bindable var preferences: AppPreferences
+    @State private var launchError: String?
+
+    init(environment: AppEnvironment) {
+        self.environment = environment
+        preferences = environment.preferences
+    }
+
+    var body: some View {
+        Form {
+            Section("Hold to talk") {
+                LabeledContent("Shortcut") {
+                    Text("Hold Globe/Fn")
+                }
+                Text("Pressing any other key while Fn is held cancels recording, so normal Fn shortcuts continue to work.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("Play start and finish sounds", isOn: $preferences.sounds)
+                Toggle("Paste automatically", isOn: $preferences.autoPaste)
+                Toggle("Conservative Apple Intelligence cleanup", isOn: $preferences.cleanupEnabled)
+            }
+
+            Section("Permissions") {
+                permissionRow(
+                    title: "Microphone",
+                    granted: environment.microphoneGranted,
+                    action: environment.requestMicrophone
+                )
+                permissionRow(
+                    title: "Accessibility",
+                    granted: environment.accessibilityGranted,
+                    action: environment.requestAccessibility
+                )
+            }
+
+            Section("Local model") {
+                HStack {
+                    Label(
+                        environment.modelStatus.isReady
+                            ? "Parakeet Unified English is ready"
+                            : "Parakeet model is missing",
+                        systemImage: environment.modelStatus.isReady
+                            ? "checkmark.circle.fill"
+                            : "arrow.down.circle"
+                    )
+                    .foregroundStyle(environment.modelStatus.isReady ? .green : .primary)
+                    Spacer()
+                    if !environment.modelStatus.isReady {
+                        Button("Download and verify") {
+                            environment.downloadModel()
+                        }
+                        .disabled(environment.setupProgress != nil)
+                    }
+                }
+                if let progress = environment.setupProgress {
+                    ProgressView(value: progress)
+                }
+                if let message = environment.setupMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Startup and migration") {
+                Toggle(
+                    "Launch invisibly at login",
+                    isOn: Binding(
+                        get: { environment.launchAtLogin.isEnabled },
+                        set: { enabled in
+                            do {
+                                try environment.launchAtLogin.setEnabled(enabled)
+                                launchError = nil
+                            } catch {
+                                launchError = error.localizedDescription
+                            }
+                        }
+                    )
+                )
+                Text(environment.launchAtLogin.statusDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button("Import OpenWhispr core data") {
+                    Task { await environment.importLegacyData() }
+                }
+                if let message = environment.migrationMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { environment.refreshPermissions() }
+        .alert("Startup setting failed", isPresented: .constant(launchError != nil)) {
+            Button("OK") { launchError = nil }
+        } message: {
+            Text(launchError ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private func permissionRow(
+        title: String,
+        granted: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack {
+            Label(
+                title,
+                systemImage: granted ? "checkmark.circle.fill" : "exclamationmark.triangle"
+            )
+            .foregroundStyle(granted ? .green : .orange)
+            Spacer()
+            if !granted {
+                Button("Allow", action: action)
+            }
+        }
+    }
+}

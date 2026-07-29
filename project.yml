@@ -1,0 +1,115 @@
+name: WhisprLocal
+options:
+  bundleIdPrefix: com.jasenguerra
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+packages:
+  SherpaRuntime:
+    path: Packages/SherpaRuntime
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: true
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: LWHJ76XFS5
+    CODE_SIGN_IDENTITY: Apple Development
+targets:
+  WhisprLocalLoginHelper:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/WhisprLocalLoginHelper
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jasenguerra.whisprlocal.loginhelper
+        PRODUCT_NAME: WhisprLocalLoginHelper
+        INFOPLIST_FILE: Config/LoginHelper-Info.plist
+        GENERATE_INFOPLIST_FILE: false
+        SKIP_INSTALL: true
+        ENABLE_HARDENED_RUNTIME: true
+      configs:
+        Release:
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: false
+  WhisprLocal:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/WhisprLocal
+    dependencies:
+      - package: SherpaRuntime
+        product: SherpaRuntime
+      - target: WhisprLocalLoginHelper
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jasenguerra.whisprlocal
+        PRODUCT_NAME: WhisprLocal
+        INFOPLIST_FILE: Config/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Config/WhisprLocal.entitlements
+        ENABLE_HARDENED_RUNTIME: true
+        GENERATE_INFOPLIST_FILE: false
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-lc++"
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+      configs:
+        Release:
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: false
+    preBuildScripts:
+      - name: Normalize ONNX Runtime framework links
+        basedOnDependencyAnalysis: false
+        script: |
+          framework="$BUILD_DIR/../../SourcePackages/artifacts/onnxruntime-libs/OnnxruntimeMacOS/onnxruntime.xcframework/macos-arm64_x86_64/onnxruntime.framework"
+          if [[ -d "$framework/Versions/Current" && ! -L "$framework/Versions/Current" ]]; then
+            mv "$framework/Versions/Current" "$TARGET_TEMP_DIR/onnxruntime-source-current-$RANDOM"
+            ln -s A "$framework/Versions/Current"
+          fi
+          if [[ -d "$framework/Resources" && ! -L "$framework/Resources" ]]; then
+            mv "$framework/Resources" "$TARGET_TEMP_DIR/onnxruntime-source-resources-$RANDOM"
+            ln -s Versions/Current/Resources "$framework/Resources"
+          fi
+    postBuildScripts:
+      - name: Embed login helper
+        basedOnDependencyAnalysis: false
+        script: |
+          destination="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LoginItems"
+          mkdir -p "$destination"
+          /usr/bin/ditto "$BUILT_PRODUCTS_DIR/WhisprLocalLoginHelper.app" "$destination/WhisprLocalLoginHelper.app"
+          identity="${EXPANDED_CODE_SIGN_IDENTITY:--}"
+          /usr/bin/codesign --force --sign "$identity" --timestamp=none "$destination/WhisprLocalLoginHelper.app"
+  WhisprLocalTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/WhisprLocalTests
+        excludes:
+          - Fixtures
+      - path: Tests/WhisprLocalTests/Fixtures
+        buildPhase: resources
+    dependencies:
+      - target: WhisprLocal
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jasenguerra.whisprlocal.tests
+        GENERATE_INFOPLIST_FILE: true
+        CODE_SIGNING_ALLOWED: true
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: LWHJ76XFS5
+        CODE_SIGN_IDENTITY: Apple Development
+schemes:
+  WhisprLocal:
+    build:
+      targets:
+        WhisprLocal: all
+        WhisprLocalTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - WhisprLocalTests
+    archive:
+      config: Release

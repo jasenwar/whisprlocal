@@ -1,0 +1,4 @@
+name = "WhisprLocal"
+
+[run]
+command = "./script/build_and_run.sh run"
