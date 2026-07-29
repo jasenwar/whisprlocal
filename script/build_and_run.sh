@@ -37,7 +37,7 @@ case "$mode" in
       -configuration Release \
       -derivedDataPath "$derived_data" \
       -destination "platform=macOS,arch=arm64" \
-      build
+      clean build
     mkdir -p "$repo_root/dist"
     release_source="$derived_data/Build/Products/Release/WhisprLocal.app"
     release_destination="$repo_root/dist/WhisprLocal.app"

@@ -1,28 +1,48 @@
 import Foundation
+import Observation
 import ServiceManagement
 
 @MainActor
+@Observable
 final class LaunchAtLoginService {
-    static let helperIdentifier = "com.jasenguerra.whisprlocal.loginhelper"
-    private let service = SMAppService.loginItem(identifier: helperIdentifier)
+    private let service: SMAppService
+    private(set) var status: SMAppService.Status
 
     var isEnabled: Bool {
-        service.status == .enabled
+        status == .enabled
     }
 
     var statusDescription: String {
-        switch service.status {
+        switch status {
         case .notRegistered: "Off"
         case .enabled: "On"
-        case .requiresApproval: "Needs approval in Login Items"
-        case .notFound: "Login helper not found"
+        case .requiresApproval: "Needs approval in System Settings → Login Items"
+        case .notFound: "Off"
         @unknown default: "Unknown"
         }
     }
 
+    init(service: SMAppService = .mainApp) {
+        self.service = service
+        status = service.status
+    }
+
+    func refresh() {
+        status = service.status
+    }
+
     func setEnabled(_ enabled: Bool) throws {
+        defer { refresh() }
+
         if enabled {
-            if service.status == .notRegistered {
+            switch service.status {
+            case .enabled:
+                return
+            case .requiresApproval:
+                SMAppService.openSystemSettingsLoginItems()
+            case .notRegistered, .notFound:
+                try service.register()
+            @unknown default:
                 try service.register()
             }
         } else if service.status != .notRegistered {

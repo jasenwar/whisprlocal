@@ -23,7 +23,6 @@ final class AppEnvironment {
     private(set) var modelStatus: ModelStatus = .missing
     private(set) var setupProgress: Double?
     private(set) var setupMessage: String?
-    private(set) var migrationMessage: String?
     private(set) var microphoneGranted = false
     private(set) var accessibilityGranted = false
 
@@ -74,7 +73,6 @@ final class AppEnvironment {
             }
             modelStatus = await modelManager.status()
             await reloadStores()
-            await importLegacyData()
         }
     }
 
@@ -127,21 +125,4 @@ final class AppEnvironment {
         }
     }
 
-    func importLegacyData() async {
-        let source = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0].appending(path: "open-whispr/transcriptions.db").path
-        do {
-            let result = try await database.importOpenWhisprIfNeeded(from: source)
-            if result.alreadyImported {
-                migrationMessage = "OpenWhispr core data was already imported."
-            } else if result.transcriptions + result.dictionaryTerms + result.snippets > 0 {
-                migrationMessage = "Imported \(result.transcriptions) transcriptions, \(result.dictionaryTerms) dictionary terms, and \(result.snippets) snippets."
-                await reloadStores()
-            }
-        } catch {
-            migrationMessage = "OpenWhispr import was skipped: \(error.localizedDescription)"
-        }
-    }
 }

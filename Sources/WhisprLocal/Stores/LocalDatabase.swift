@@ -180,113 +180,6 @@ actor LocalDatabase {
         }
     }
 
-    func importOpenWhisprIfNeeded(from sourcePath: String) throws -> ImportResult {
-        let migrationKey = "openwhispr_core_import_v1"
-        if try metadataValue(for: migrationKey) != nil {
-            return ImportResult(alreadyImported: true)
-        }
-        guard FileManager.default.fileExists(atPath: sourcePath) else {
-            return ImportResult()
-        }
-
-        var source: OpaquePointer?
-        guard sqlite3_open_v2(sourcePath, &source, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            throw DatabaseError.open("Could not open the OpenWhispr database read-only.")
-        }
-        defer { sqlite3_close(source) }
-
-        var result = ImportResult()
-        try Self.execute(on: handle, sql: "BEGIN IMMEDIATE;")
-        do {
-            let transcriptionSQL = """
-            SELECT COALESCE(raw_text, text), text,
-                   COALESCE(created_at, timestamp, strftime('%s','now')),
-                   COALESCE(audio_duration_ms, 0), COALESCE(provider, 'openwhispr')
-            FROM transcriptions
-            WHERE deleted_at IS NULL AND length(trim(text)) > 0;
-            """
-            if let statement = try? Self.prepare(on: source, sql: transcriptionSQL) {
-                defer { sqlite3_finalize(statement) }
-                while sqlite3_step(statement) == SQLITE_ROW {
-                    let raw = Self.string(statement, 0)
-                    let corrected = Self.string(statement, 1)
-                    let timestamp = Self.dateValue(statement, 2)
-                    _ = try insertTranscription(
-                        rawText: raw,
-                        correctedText: corrected,
-                        createdAt: timestamp,
-                        audioDuration: sqlite3_column_double(statement, 3) / 1000,
-                        processingLatency: 0,
-                        transcriptionEngine: Self.string(statement, 4),
-                        cleanupEngine: "imported",
-                        status: "imported"
-                    )
-                    result.transcriptions += 1
-                }
-            }
-
-            if let statement = try? Self.prepare(on: source, sql: """
-            SELECT word, COALESCE(created_at, strftime('%s','now'))
-            FROM custom_dictionary
-            WHERE deleted_at IS NULL AND length(trim(word)) > 0;
-            """) {
-                defer { sqlite3_finalize(statement) }
-                while sqlite3_step(statement) == SQLITE_ROW {
-                    try addDictionaryTerm(
-                        Self.string(statement, 0),
-                        createdAt: Self.dateValue(statement, 1)
-                    )
-                    result.dictionaryTerms += 1
-                }
-            }
-
-            if let statement = try? Self.prepare(on: source, sql: """
-            SELECT trigger, replacement, COALESCE(created_at, strftime('%s','now'))
-            FROM snippets
-            WHERE deleted_at IS NULL
-              AND length(trim(trigger)) > 0
-              AND length(replacement) > 0;
-            """) {
-                defer { sqlite3_finalize(statement) }
-                while sqlite3_step(statement) == SQLITE_ROW {
-                    try addSnippet(
-                        trigger: Self.string(statement, 0),
-                        replacement: Self.string(statement, 1),
-                        createdAt: Self.dateValue(statement, 2)
-                    )
-                    result.snippets += 1
-                }
-            }
-
-            try setMetadataValue(
-                "\(Date().timeIntervalSince1970)",
-                for: migrationKey
-            )
-            try Self.execute(on: handle, sql: "COMMIT;")
-        } catch {
-            try? Self.execute(on: handle, sql: "ROLLBACK;")
-            throw error
-        }
-        return result
-    }
-
-    private func metadataValue(for key: String) throws -> String? {
-        let statement = try prepare("SELECT value FROM migration_metadata WHERE key = ?;")
-        defer { sqlite3_finalize(statement) }
-        bind(key, at: 1, in: statement)
-        return sqlite3_step(statement) == SQLITE_ROW ? string(statement, 0) : nil
-    }
-
-    private func setMetadataValue(_ value: String, for key: String) throws {
-        try execute("""
-        INSERT INTO migration_metadata (key, value) VALUES (?, ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value;
-        """) { statement in
-            bind(key, at: 1, in: statement)
-            bind(value, at: 2, in: statement)
-        }
-    }
-
     private func execute(
         _ sql: String,
         bindings: (OpaquePointer?) -> Void
@@ -343,11 +236,6 @@ actor LocalDatabase {
             replacement TEXT NOT NULL,
             created_at REAL NOT NULL
         );
-
-        CREATE TABLE IF NOT EXISTS migration_metadata (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );
         """)
     }
 
@@ -372,25 +260,6 @@ actor LocalDatabase {
         guard let value = sqlite3_column_text(statement, index) else { return "" }
         return String(cString: value)
     }
-
-    private static func dateValue(_ statement: OpaquePointer?, _ index: Int32) -> Date {
-        if sqlite3_column_type(statement, index) == SQLITE_FLOAT
-            || sqlite3_column_type(statement, index) == SQLITE_INTEGER {
-            return Date(timeIntervalSince1970: sqlite3_column_double(statement, index))
-        }
-        let value = string(statement, index)
-        if let number = TimeInterval(value) {
-            return Date(timeIntervalSince1970: number)
-        }
-        return ISO8601DateFormatter().date(from: value) ?? Date()
-    }
-}
-
-struct ImportResult: Equatable, Sendable {
-    var transcriptions = 0
-    var dictionaryTerms = 0
-    var snippets = 0
-    var alreadyImported = false
 }
 
 enum DatabaseError: LocalizedError {

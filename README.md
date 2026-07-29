@@ -41,10 +41,6 @@ database is stored at:
 
 `~/Library/Application Support/WhisprLocal/whisprlocal.sqlite`
 
-WhisprLocal can perform a one-time, read-only import of active transcription
-text, dictionary entries, and snippets from an existing OpenWhispr database.
-The original database and audio files are never modified.
-
 ## Upstream
 
 WhisprLocal began as a hard fork of

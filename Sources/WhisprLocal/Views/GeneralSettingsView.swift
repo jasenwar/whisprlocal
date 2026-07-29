@@ -81,7 +81,7 @@ struct GeneralSettingsView: View {
                 }
             }
 
-            Section("Startup and migration") {
+            Section("Startup") {
                 Toggle(
                     "Launch invisibly at login",
                     isOn: Binding(
@@ -99,19 +99,13 @@ struct GeneralSettingsView: View {
                 Text(environment.launchAtLogin.statusDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-
-                Button("Import OpenWhispr core data") {
-                    Task { await environment.importLegacyData() }
-                }
-                if let message = environment.migrationMessage {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
             }
         }
         .formStyle(.grouped)
-        .onAppear { environment.refreshPermissions() }
+        .onAppear {
+            environment.refreshPermissions()
+            environment.launchAtLogin.refresh()
+        }
         .alert("Startup setting failed", isPresented: .constant(launchError != nil)) {
             Button("OK") { launchError = nil }
         } message: {
