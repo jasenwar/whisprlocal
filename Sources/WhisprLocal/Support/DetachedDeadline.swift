@@ -6,7 +6,7 @@ enum DetachedDeadline {
         onOperationFinished: @escaping @Sendable () async -> Void = {},
         operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
-        let gate = DeadlineGate<Value>()
+        let race = LockedDeadlineRace<Value>()
         let operationTask = Task.detached(priority: .userInitiated) {
             let outcome: DeadlineOutcome<Value>
             do {
@@ -17,29 +17,23 @@ enum DetachedDeadline {
                 outcome = .failure(error.localizedDescription)
             }
             await onOperationFinished()
-            await gate.resolve(outcome)
+            race.resolve(outcome)
         }
-        let timeoutTask = Task.detached(priority: .userInitiated) {
-            do {
-                try await Task.sleep(for: timeout)
-                await gate.resolve(.timedOut)
-            } catch {
-                // The operation completed or the caller cancelled.
-            }
+
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(
+            deadline: .now() + timeout.timeInterval
+        ) {
+            race.resolve(.timedOut)
         }
 
         let outcome = await withTaskCancellationHandler {
-            await gate.wait()
+            await race.wait()
         } onCancel: {
             operationTask.cancel()
-            timeoutTask.cancel()
-            Task {
-                await gate.resolve(.cancelled)
-            }
+            race.resolve(.cancelled)
         }
 
         operationTask.cancel()
-        timeoutTask.cancel()
         switch outcome {
         case .value(let value):
             return value
@@ -60,24 +54,35 @@ private enum DeadlineOutcome<Value: Sendable>: Sendable {
     case cancelled
 }
 
-private actor DeadlineGate<Value: Sendable> {
+private final class LockedDeadlineRace<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
     private var outcome: DeadlineOutcome<Value>?
     private var continuation: CheckedContinuation<DeadlineOutcome<Value>, Never>?
 
     func wait() async -> DeadlineOutcome<Value> {
-        if let outcome {
-            return outcome
-        }
-        return await withCheckedContinuation { continuation in
-            self.continuation = continuation
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if let outcome {
+                lock.unlock()
+                continuation.resume(returning: outcome)
+            } else {
+                self.continuation = continuation
+                lock.unlock()
+            }
         }
     }
 
     func resolve(_ outcome: DeadlineOutcome<Value>) {
-        guard self.outcome == nil else { return }
+        lock.lock()
+        guard self.outcome == nil else {
+            lock.unlock()
+            return
+        }
         self.outcome = outcome
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
         continuation?.resume(returning: outcome)
-        continuation = nil
     }
 }
 

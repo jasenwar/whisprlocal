@@ -3,7 +3,11 @@ import Foundation
 
 @MainActor
 protocol PasteService: AnyObject {
-    func paste(_ text: String, restoringClipboard: Bool) async throws
+    func paste(
+        _ text: String,
+        targetProcessIdentifier: pid_t?,
+        restoringClipboard: Bool
+    ) async throws
 }
 
 @MainActor
@@ -14,7 +18,11 @@ final class SystemPasteService: PasteService {
         self.pasteboard = pasteboard
     }
 
-    func paste(_ text: String, restoringClipboard: Bool) async throws {
+    func paste(
+        _ text: String,
+        targetProcessIdentifier: pid_t?,
+        restoringClipboard: Bool
+    ) async throws {
         guard AXIsProcessTrusted() else {
             throw WhisprLocalError.accessibilityDenied
         }
@@ -41,8 +49,13 @@ final class SystemPasteService: PasteService {
         }
         down.flags = .maskCommand
         up.flags = .maskCommand
-        down.post(tap: .cghidEventTap)
-        up.post(tap: .cghidEventTap)
+        if let targetProcessIdentifier {
+            down.postToPid(targetProcessIdentifier)
+            up.postToPid(targetProcessIdentifier)
+        } else {
+            down.post(tap: .cghidEventTap)
+            up.post(tap: .cghidEventTap)
+        }
 
         if restoringClipboard {
             try? await Task.sleep(for: .milliseconds(350))

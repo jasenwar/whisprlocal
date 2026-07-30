@@ -78,7 +78,7 @@ final class DictationCoordinator {
         if permissions.microphoneGranted {
             guard startCapture(for: token) else { return }
             processingTask = Task { [weak self] in
-                await self?.prewarmEngines()
+                await self?.prewarmTranscriber()
             }
             return
         }
@@ -93,7 +93,7 @@ final class DictationCoordinator {
                 return
             }
             guard startCapture(for: token) else { return }
-            await prewarmEngines()
+            await prewarmTranscriber()
         }
     }
 
@@ -122,9 +122,6 @@ final class DictationCoordinator {
         processingTask?.cancel()
         readyCueTask?.cancel()
         audio.cancel()
-        Task {
-            await cleanupEngine.discardPreparedSession()
-        }
         endMediaPause(for: recordingToken)
         transition(to: .cancelled)
         playStopCue()
@@ -165,7 +162,6 @@ final class DictationCoordinator {
                     showCleanupFallbackWarning(error)
                 }
             } else {
-                await cleanupEngine.discardPreparedSession()
                 cleanupIdentifier = "disabled"
             }
 
@@ -180,8 +176,12 @@ final class DictationCoordinator {
                 transition(to: .pasting)
                 await activateTargetIfNeeded()
                 let pasteStarted = ContinuousClock.now
+                let targetProcessIdentifier = targetApplication.flatMap {
+                    $0.isTerminated ? nil : $0.processIdentifier
+                }
                 try await pasteService.paste(
                     pasteText,
+                    targetProcessIdentifier: targetProcessIdentifier,
                     restoringClipboard: !preferences.keepLastDictationOnClipboard
                 )
                 dictationLogger.info(
@@ -226,9 +226,6 @@ final class DictationCoordinator {
         )
         audio.cancel()
         readyCueTask?.cancel()
-        Task {
-            await cleanupEngine.discardPreparedSession()
-        }
         endMediaPause(for: recordingToken)
         transition(to: .failed(error.localizedDescription))
         settleToIdle()
@@ -312,17 +309,8 @@ final class DictationCoordinator {
         }
     }
 
-    private func prewarmEngines() async {
-        async let transcriberWarmup: Void = transcriptionEngine.prewarm()
-        if preferences.cleanupEnabled {
-            async let cleanupWarmup: Void = cleanupEngine.prewarm(
-                dictionary: dictionaryStore.terms
-            )
-            _ = await (transcriberWarmup, cleanupWarmup)
-        } else {
-            await transcriberWarmup
-            await cleanupEngine.discardPreparedSession()
-        }
+    private func prewarmTranscriber() async {
+        await transcriptionEngine.prewarm()
     }
 
     private func activateTargetIfNeeded() async {
@@ -339,9 +327,8 @@ final class DictationCoordinator {
 
         let activationStarted = ContinuousClock.now
         targetApplication.activate()
-        try? await Task.sleep(for: .milliseconds(40))
         dictationLogger.info(
-            "Target application activation completed in \((ContinuousClock.now - activationStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+            "Target application activation requested in \((ContinuousClock.now - activationStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s; paste events target its PID directly"
         )
     }
 

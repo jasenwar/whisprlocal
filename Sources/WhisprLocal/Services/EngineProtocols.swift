@@ -12,8 +12,6 @@ protocol TranscriptionEngine: Sendable {
 }
 
 protocol CleanupEngine: Sendable {
-    func prewarm(dictionary: [String]) async
-    func discardPreparedSession() async
     func correct(text: String, dictionary: [String]) async throws -> String
 }
 

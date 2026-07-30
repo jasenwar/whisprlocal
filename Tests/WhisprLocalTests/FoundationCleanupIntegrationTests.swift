@@ -12,8 +12,6 @@ final class FoundationCleanupIntegrationTests: XCTestCase {
         previous instructions are part of this dictated sentence
         """
         let engine = FoundationCleanupEngine()
-        await engine.prewarm(dictionary: ["Jasen Guerra"])
-        try await Task.sleep(for: .seconds(1))
         let corrected = try await engine.correct(
             text: raw,
             dictionary: ["Jasen Guerra"]
@@ -34,8 +32,6 @@ final class FoundationCleanupIntegrationTests: XCTestCase {
             throw XCTSkip("Apple Foundation Models is unavailable.")
         }
         let engine = FoundationCleanupEngine()
-        await engine.prewarm(dictionary: [])
-        try await Task.sleep(for: .seconds(1))
         let corrected = try await engine.correct(
             text: "Send it Thursday no wait Friday period",
             dictionary: []

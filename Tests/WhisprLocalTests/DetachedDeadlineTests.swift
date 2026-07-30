@@ -35,4 +35,30 @@ final class DetachedDeadlineTests: XCTestCase {
             0.2
         )
     }
+
+    @MainActor
+    func testWallClockDeadlineDoesNotDependOnSwiftTimeoutTask() async {
+        let started = ContinuousClock.now
+        do {
+            let _: String = try await DetachedDeadline.run(
+                timeout: .milliseconds(50)
+            ) {
+                Self.blockCurrentThread(for: 0.35)
+                return "late"
+            }
+            XCTFail("Expected cleanup deadline.")
+        } catch WhisprLocalError.cleanupTimedOut {
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertLessThan(
+            (ContinuousClock.now - started).timeInterval,
+            0.2
+        )
+    }
+
+    private nonisolated static func blockCurrentThread(for interval: TimeInterval) {
+        Thread.sleep(forTimeInterval: interval)
+    }
 }
