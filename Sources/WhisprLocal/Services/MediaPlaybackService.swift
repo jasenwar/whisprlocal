@@ -1,7 +1,7 @@
+import Darwin
 import Dispatch
 import Foundation
 import OSLog
-@preconcurrency import AppKit
 
 private let mediaPlaybackLogger = Logger(
     subsystem: "com.jasenguerra.whisprlocal",
@@ -20,8 +20,8 @@ enum MediaPlaybackState: String, Sendable {
 }
 
 protocol MediaRemoteControlling: Sendable {
-    func playbackState() async -> MediaPlaybackState
-    func togglePlayPause() async -> Bool
+    func pauseIfPlaying() async -> Bool
+    func play() async -> Bool
 }
 
 actor MediaPlaybackService: MediaPlaybackControlling {
@@ -29,7 +29,10 @@ actor MediaPlaybackService: MediaPlaybackControlling {
     private var activeDictations: Set<UUID> = []
     private var pausedByWhisprLocal = false
 
-    init(remote: any MediaRemoteControlling = MediaRemoteClient()) {
+    init(
+        remote: any MediaRemoteControlling =
+            MediaRemoteAdapterClient()
+    ) {
         self.remote = remote
     }
 
@@ -42,144 +45,312 @@ actor MediaPlaybackService: MediaPlaybackControlling {
             return
         }
 
-        let stateStarted = ContinuousClock.now
-        let state = await remote.playbackState()
+        let started = ContinuousClock.now
+        let posted = await remote.pauseIfPlaying()
         mediaPlaybackLogger.info(
-            "Playback state before capture=\(state.rawValue, privacy: .public) resolved in \((ContinuousClock.now - stateStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+            "State-aware pause completed posted=\(posted, privacy: .public) in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
         )
-        guard state == .playing else {
-            mediaPlaybackLogger.info(
-                "Pause command skipped for playback state=\(state.rawValue, privacy: .public)"
-            )
-            return
-        }
-        guard activeDictations.contains(id), !pausedByWhisprLocal else { return }
 
-        let posted = await remote.togglePlayPause()
-        mediaPlaybackLogger.info(
-            "Pause command posted success=\(posted, privacy: .public)"
-        )
         if posted {
-            pausedByWhisprLocal = true
+            if activeDictations.isEmpty {
+                // Dictation ended while the adapter was pausing. Restore
+                // playback immediately instead of losing pause ownership.
+                _ = await remote.play()
+            } else {
+                pausedByWhisprLocal = true
+            }
         }
     }
 
     func endDictation(_ id: UUID) async {
         activeDictations.remove(id)
-        guard activeDictations.isEmpty, pausedByWhisprLocal else { return }
-
-        var state = await remote.playbackState()
-        if state == .unavailable {
-            try? await Task.sleep(for: .milliseconds(50))
-            state = await remote.playbackState()
-            mediaPlaybackLogger.info(
-                "Playback state retry before resume=\(state.rawValue, privacy: .public)"
-            )
-        }
-        guard state != .playing else {
-            mediaPlaybackLogger.info(
-                "Resume command skipped for playback state=\(state.rawValue, privacy: .public)"
-            )
-            pausedByWhisprLocal = false
+        guard activeDictations.isEmpty, pausedByWhisprLocal else {
             return
         }
-        if state == .unavailable {
-            mediaPlaybackLogger.info(
-                "Posting owned resume despite unavailable playback state"
-            )
-        }
-        let posted = await remote.togglePlayPause()
+
+        let started = ContinuousClock.now
+        let posted = await remote.play()
         mediaPlaybackLogger.info(
-            "Resume command posted success=\(posted, privacy: .public)"
+            "Owned explicit play completed posted=\(posted, privacy: .public) in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
         )
         pausedByWhisprLocal = false
     }
 }
 
-private final class MediaRemoteClient: MediaRemoteControlling, @unchecked Sendable {
-    private typealias PlayingCallback = @convention(block) (Bool) -> Void
-    private typealias GetPlayingFunction = @convention(c) (
-        DispatchQueue,
-        @escaping PlayingCallback
-    ) -> Void
-    private let handle: UnsafeMutableRawPointer?
-    private let getPlaying: GetPlayingFunction?
+struct MediaRemoteAdapterClient: MediaRemoteControlling {
+    private let runner: any MediaRemoteCommandRunning
+    private let commandTimeout: Duration
 
-    init() {
-        let framework = dlopen(
-            "/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote",
-            RTLD_NOW
+    init(
+        runner: any MediaRemoteCommandRunning =
+            BundledMediaRemoteCommandRunner(),
+        commandTimeout: Duration = .milliseconds(450)
+    ) {
+        self.runner = runner
+        self.commandTimeout = commandTimeout
+    }
+
+    func pauseIfPlaying() async -> Bool {
+        let result = await execute("pause-if-playing")
+        return result.succeeded && result.output == "PAUSED"
+    }
+
+    func play() async -> Bool {
+        let result = await execute("play")
+        return result.succeeded && result.output == "PLAYED"
+    }
+
+    func playbackStateForDiagnostics() async -> MediaPlaybackState {
+        Self.playbackState(
+            from: await execute("state").output
         )
-        handle = framework
+    }
 
-        if let framework,
-           let symbol = dlsym(
-               framework,
-               "MRMediaRemoteGetNowPlayingApplicationIsPlaying"
-           ) {
-            getPlaying = unsafeBitCast(symbol, to: GetPlayingFunction.self)
+    static func playbackState(from output: String) -> MediaPlaybackState {
+        switch output {
+        case "PLAYING":
+            .playing
+        case "PAUSED":
+            .paused
+        default:
+            .unavailable
+        }
+    }
+
+    private func execute(
+        _ command: String
+    ) async -> (output: String, succeeded: Bool) {
+        let started = ContinuousClock.now
+        let result = await runner.run(
+            command: command,
+            timeout: commandTimeout
+        )
+        let output = result.standardOutput
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let elapsed = (ContinuousClock.now - started).timeInterval
+
+        if result.timedOut {
+            mediaPlaybackLogger.error(
+                "Adapter command=\(command, privacy: .public) timed out in \(elapsed, format: .fixed(precision: 3), privacy: .public)s"
+            )
+        } else if result.terminationStatus != 0 {
+            mediaPlaybackLogger.error(
+                "Adapter command=\(command, privacy: .public) failed status=\(result.terminationStatus ?? -1, privacy: .public) stderrCharacters=\(result.standardError.count, privacy: .public) in \(elapsed, format: .fixed(precision: 3), privacy: .public)s"
+            )
         } else {
-            getPlaying = nil
+            mediaPlaybackLogger.info(
+                "Adapter command=\(command, privacy: .public) result=\(output, privacy: .public) in \(elapsed, format: .fixed(precision: 3), privacy: .public)s"
+            )
         }
 
-    }
-
-    func playbackState() async -> MediaPlaybackState {
-        guard let getPlaying else { return .unavailable }
-
-        return await withCheckedContinuation { continuation in
-            let request = PlayingStateRequest(continuation: continuation)
-            getPlaying(.global(qos: .userInitiated)) { isPlaying in
-                request.complete(
-                    with: isPlaying ? .playing : .paused
-                )
-            }
-            DispatchQueue.global(qos: .utility).asyncAfter(
-                deadline: .now() + .milliseconds(75)
-            ) {
-                request.complete(with: .unavailable)
-            }
-        }
-    }
-
-    func togglePlayPause() async -> Bool {
-        for keyState in [0xA, 0xB] {
-            guard let event = NSEvent.otherEvent(
-                with: .systemDefined,
-                location: .zero,
-                modifierFlags: NSEvent.ModifierFlags(
-                    rawValue: keyState == 0xA ? 0xA00 : 0xB00
-                ),
-                timestamp: 0,
-                windowNumber: 0,
-                context: nil,
-                subtype: 8,
-                data1: (16 << 16) | (keyState << 8),
-                data2: -1
-            )?.cgEvent else {
-                return false
-            }
-            event.post(tap: .cghidEventTap)
-        }
-        return true
+        return (
+            output,
+            !result.timedOut && result.terminationStatus == 0
+        )
     }
 }
 
-private final class PlayingStateRequest: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<MediaPlaybackState, Never>?
+struct MediaRemoteCommandResult: Sendable {
+    let terminationStatus: Int32?
+    let standardOutput: String
+    let standardError: String
+    let timedOut: Bool
+}
 
-    init(
-        continuation: CheckedContinuation<MediaPlaybackState, Never>
-    ) {
-        self.continuation = continuation
+protocol MediaRemoteCommandRunning: Sendable {
+    func run(
+        command: String,
+        timeout: Duration
+    ) async -> MediaRemoteCommandResult
+}
+
+struct BundledMediaRemoteCommandRunner: MediaRemoteCommandRunning {
+    private let runtimeURL: URL?
+
+    init(bundle: Bundle = .main) {
+        runtimeURL = bundle.resourceURL?.appending(
+            path: "MediaRemoteRuntime"
+        )
     }
 
-    func complete(with value: MediaPlaybackState) {
+    init(runtimeURL: URL) {
+        self.runtimeURL = runtimeURL
+    }
+
+    func run(
+        command: String,
+        timeout: Duration
+    ) async -> MediaRemoteCommandResult {
+        guard let runtimeURL else {
+            return Self.unavailableResult(
+                "Runtime URL is unavailable"
+            )
+        }
+
+        let scriptURL = runtimeURL.appending(
+            path: "mediaremote-adapter.pl"
+        )
+        let frameworkURL = runtimeURL.appending(
+            path: "MediaRemoteAdapter.framework"
+        )
+        guard FileManager.default.fileExists(atPath: scriptURL.path),
+              FileManager.default.fileExists(atPath: frameworkURL.path)
+        else {
+            return Self.unavailableResult(
+                "MediaRemote adapter resources are missing"
+            )
+        }
+
+        return await MediaRemoteProcessInvocation(
+            executableURL: URL(filePath: "/usr/bin/perl"),
+            arguments: [
+                scriptURL.path,
+                frameworkURL.path,
+                command
+            ]
+        ).execute(timeout: timeout)
+    }
+
+    private static func unavailableResult(
+        _ message: String
+    ) -> MediaRemoteCommandResult {
+        MediaRemoteCommandResult(
+            terminationStatus: nil,
+            standardOutput: "",
+            standardError: message,
+            timedOut: false
+        )
+    }
+}
+
+final class MediaRemoteProcessInvocation: @unchecked Sendable {
+    private let process = Process()
+    private let standardOutput = Pipe()
+    private let standardError = Pipe()
+    private let completion = LockedMediaRemoteContinuation()
+
+    init(executableURL: URL, arguments: [String]) {
+        process.executableURL = executableURL
+        process.arguments = arguments
+        process.standardOutput = standardOutput
+        process.standardError = standardError
+    }
+
+    func execute(timeout: Duration) async -> MediaRemoteCommandResult {
+        await withCheckedContinuation { continuation in
+            completion.install(continuation)
+            process.terminationHandler = { [weak self] process in
+                self?.finish(process)
+            }
+
+            do {
+                try process.run()
+            } catch {
+                finishLaunchFailure(error)
+                return
+            }
+
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(
+                deadline: .now() + timeout.timeInterval
+            ) { [weak self] in
+                self?.timeOut()
+            }
+        }
+    }
+
+    private func finish(_ process: Process) {
+        guard let continuation = completion.claim() else {
+            return
+        }
+        let outputData = standardOutput.fileHandleForReading
+            .readDataToEndOfFile()
+        let errorData = standardError.fileHandleForReading
+            .readDataToEndOfFile()
+        continuation.resume(
+            returning: MediaRemoteCommandResult(
+                terminationStatus: process.terminationStatus,
+                standardOutput: String(
+                    data: outputData,
+                    encoding: .utf8
+                ) ?? "",
+                standardError: String(
+                    data: errorData,
+                    encoding: .utf8
+                ) ?? "",
+                timedOut: false
+            )
+        )
+    }
+
+    private func finishLaunchFailure(_ error: Error) {
+        guard let continuation = completion.claim() else {
+            return
+        }
+        continuation.resume(
+            returning: MediaRemoteCommandResult(
+                terminationStatus: nil,
+                standardOutput: "",
+                standardError: error.localizedDescription,
+                timedOut: false
+            )
+        )
+    }
+
+    private func timeOut() {
+        guard let continuation = completion.claim() else {
+            return
+        }
+        let processIdentifier = process.processIdentifier
+        if process.isRunning {
+            process.terminate()
+            DispatchQueue.global(qos: .utility).asyncAfter(
+                deadline: .now() + .milliseconds(50)
+            ) { [self] in
+                guard process.isRunning,
+                      processIdentifier > 1 else {
+                    return
+                }
+                kill(processIdentifier, SIGKILL)
+            }
+        }
+        continuation.resume(
+            returning: MediaRemoteCommandResult(
+                terminationStatus: nil,
+                standardOutput: "",
+                standardError: "MediaRemote adapter timed out",
+                timedOut: true
+            )
+        )
+    }
+}
+
+private final class LockedMediaRemoteContinuation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation:
+        CheckedContinuation<MediaRemoteCommandResult, Never>?
+    private var resolved = false
+
+    func install(
+        _ continuation:
+            CheckedContinuation<MediaRemoteCommandResult, Never>
+    ) {
         lock.lock()
-        let continuation = continuation
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func claim() ->
+        CheckedContinuation<MediaRemoteCommandResult, Never>?
+    {
+        lock.lock()
+        guard !resolved else {
+            lock.unlock()
+            return nil
+        }
+        resolved = true
+        let continuation = self.continuation
         self.continuation = nil
         lock.unlock()
-        continuation?.resume(returning: value)
+        return continuation
     }
 }

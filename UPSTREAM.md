@@ -11,3 +11,9 @@ The Electron, React, Node, cloud, account, commerce, and cross-platform
 implementation was removed in favor of a purpose-built native macOS utility.
 Future upstream changes are intended to be reviewed and cherry-picked
 selectively.
+
+The native media pause implementation also adapts OpenWhispr's use of
+`ungive/mediaremote-adapter` v0.7.6. WhisprLocal retains only the state,
+explicit Pause, and explicit Play operations, builds the framework locally,
+and bundles the original BSD 3-Clause license in
+`Vendor/MediaRemoteAdapter`.

@@ -7,20 +7,24 @@ truth; the generated Xcode project is intentionally not committed.
 ## Runtime flow
 
 1. `GlobalFnMonitor` observes Globe/Fn modifier changes in-process.
-2. `AudioCaptureService` captures mono floating-point PCM and resamples to
+2. `MediaPlaybackService` invokes a bundled, state-aware MediaRemote adapter
+   through `/usr/bin/perl`. The bridge performs one bounded
+   pause-if-currently-playing operation and records pause ownership so the
+   coordinator can later send an explicit Play command without toggle risk.
+3. `AudioCaptureService` captures mono floating-point PCM and resamples to
    16 kHz without writing a file.
-3. `ParakeetTranscriptionEngine` calls sherpa-onnx v1.13.4 directly. Dictionary
+4. `ParakeetTranscriptionEngine` calls sherpa-onnx v1.13.4 directly. Dictionary
    terms and snippet triggers are SentencePiece-encoded and passed through the
    per-stream hotword API with modified beam search and score 1.5.
-4. `LocalCleanupEngine` protects fragile values, then sends a deterministic
+5. `LocalCleanupEngine` protects fragile values, then sends a deterministic
    conservative-cleanup request to the pinned Qwen2.5 3B model.
    `LlamaServerController` owns one bundled, signed `llama-server` helper on a
    random loopback port with an ephemeral API key and strict request deadline.
-5. `SnippetExpander` performs Unicode-aware, whole-phrase, longest-first
+6. `SnippetExpander` performs Unicode-aware, whole-phrase, longest-first
    expansion.
-6. `SystemPasteService` snapshots every pasteboard item/type, posts Command-V,
+7. `SystemPasteService` snapshots every pasteboard item/type, posts Command-V,
    waits for the destination to consume it, and restores the snapshot.
-7. `LocalDatabase` stores the raw and corrected text and processing metadata.
+8. `LocalDatabase` stores the raw and corrected text and processing metadata.
 
 `DictationCoordinator` is the only owner of the state machine:
 
@@ -65,3 +69,5 @@ no web UI.
   and `Package.resolved`
 - llama.cpp b10180 (`11b068d06`): pinned release archive and SHA-256
 - Qwen2.5 3B Instruct Q4_K_M: pinned revision, byte count, and SHA-256
+- mediaremote-adapter v0.7.6: narrowed source adaptation with retained BSD
+  3-Clause license, compiled locally as an arm64 framework

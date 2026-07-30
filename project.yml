@@ -44,6 +44,10 @@ targets:
         Release:
           CODE_SIGN_INJECT_BASE_ENTITLEMENTS: false
     preBuildScripts:
+      - name: Build MediaRemote adapter
+        basedOnDependencyAnalysis: false
+        script: |
+          /bin/zsh "$SRCROOT/script/build_media_remote_adapter.sh" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/MediaRemoteRuntime"
       - name: Normalize ONNX Runtime framework links
         basedOnDependencyAnalysis: false
         script: |
@@ -57,18 +61,23 @@ targets:
             ln -s Versions/Current/Resources "$framework/Resources"
           fi
     postBuildScripts:
-      - name: Sign local cleanup runtime
+      - name: Sign local runtimes
         basedOnDependencyAnalysis: false
         script: |
-          runtime="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/LocalCleanupRuntime"
-          if [[ ! -x "$runtime/llama-server" ]]; then
-            exit 0
-          fi
           identity="${EXPANDED_CODE_SIGN_IDENTITY:--}"
-          for library in "$runtime"/*.dylib; do
-            /usr/bin/codesign --force --sign "$identity" --options runtime --timestamp=none "$library"
-          done
-          /usr/bin/codesign --force --sign "$identity" --options runtime --timestamp=none "$runtime/llama-server"
+
+          media_framework="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/MediaRemoteRuntime/MediaRemoteAdapter.framework"
+          if [[ -d "$media_framework" ]]; then
+            /usr/bin/codesign --force --sign "$identity" --options runtime --timestamp=none "$media_framework"
+          fi
+
+          runtime="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/LocalCleanupRuntime"
+          if [[ -x "$runtime/llama-server" ]]; then
+            for library in "$runtime"/*.dylib; do
+              /usr/bin/codesign --force --sign "$identity" --options runtime --timestamp=none "$library"
+            done
+            /usr/bin/codesign --force --sign "$identity" --options runtime --timestamp=none "$runtime/llama-server"
+          fi
   WhisprLocalTests:
     type: bundle.unit-test
     platform: macOS

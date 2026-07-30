@@ -18,7 +18,10 @@ Sound settings and the built-in microphone when that is selected instead.
 
 The **Pause media while dictating** setting pauses the active macOS Now Playing
 session when recording starts and resumes it when recording finishes or is
-cancelled. Media that was already paused is left paused.
+cancelled. Media that was already paused is left paused. A narrowly adapted
+copy of OpenWhispr's state-aware MediaRemote bridge performs explicit Pause
+and Play commands locally, avoiding unreliable direct private-framework state
+queries and unsafe play/pause toggles.
 
 ## Requirements
 
@@ -57,6 +60,11 @@ WhisprLocal began as a hard fork of
 [OpenWhispr/openwhispr](https://github.com/OpenWhispr/openwhispr). The native
 rewrite intentionally diverges and preserves the upstream MIT license and
 attribution in [UPSTREAM.md](UPSTREAM.md).
+
+The bundled MediaRemote adapter is adapted from
+[ungive/mediaremote-adapter](https://github.com/ungive/mediaremote-adapter)
+v0.7.6 under its BSD 3-Clause license. Its source and license are retained in
+`Vendor/MediaRemoteAdapter`.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the state machine, privacy boundary,
 native dependency design, and persistence contract.

@@ -90,6 +90,13 @@ case "$mode" in
       codesign --verify --strict --verbose=2 "$runtime/llama-server"
       "$runtime/llama-server" --version
     fi
+    media_runtime="$app/Contents/Resources/MediaRemoteRuntime"
+    media_framework="$media_runtime/MediaRemoteAdapter.framework"
+    codesign --verify --strict --verbose=2 "$media_framework"
+    /usr/bin/perl \
+      "$media_runtime/mediaremote-adapter.pl" \
+      "$media_framework" \
+      state
     /usr/libexec/PlistBuddy -c "Print :LSUIElement" "$app/Contents/Info.plist"
     ;;
   *)
