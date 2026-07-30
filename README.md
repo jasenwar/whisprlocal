@@ -1,6 +1,6 @@
 # WhisprLocal
 
-WhisprLocal is a private, fully local macOS dictation utility. Hold Globe/Fn,
+WhisprLocal is a privacy-first, fully local macOS dictation utility. Hold Globe/Fn,
 speak, and release to transcribe with Parakeet Unified English, conservatively
 clean the text with a pinned on-device Qwen2.5 3B model, and paste it into the
 application that was already focused. Cleanup can be disabled independently.
@@ -32,6 +32,20 @@ queries and unsafe play/pause toggles.
 - Apple-silicon Mac running macOS 26 or newer
 - Xcode 26 or newer
 - Microphone and Accessibility permissions
+
+## Install
+
+Download the latest ZIP from
+[GitHub Releases](https://github.com/jasenwar/whisprlocal/releases/latest),
+move `WhisprLocal.app` to Applications, and run:
+
+```sh
+xattr -cr /Applications/WhisprLocal.app
+open /Applications/WhisprLocal.app
+```
+
+This personal build is Apple Development signed but not notarized for public
+distribution.
 
 ## Build
 

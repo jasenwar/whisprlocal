@@ -211,6 +211,88 @@ final class AudioAndEngineTests: XCTestCase {
         }
     }
 
+    func testModelManagerRepairsPartialInstallationFromExistingCache() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = root.appending(path: "cache", directoryHint: .isDirectory)
+        let installBase = root.appending(path: "models", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: cache,
+            withIntermediateDirectories: true
+        )
+        for (index, file) in ModelManager.requiredFiles.enumerated() {
+            try Data("fixture-\(index)".utf8).write(to: cache.appending(path: file))
+        }
+
+        let manager = ModelManager(
+            baseDirectory: installBase,
+            existingCache: cache
+        )
+        let destination = await manager.modelDirectory
+        try FileManager.default.createDirectory(
+            at: destination,
+            withIntermediateDirectories: true
+        )
+        try Data("stale".utf8).write(
+            to: destination.appending(path: ModelManager.requiredFiles[0])
+        )
+
+        let prepared = try await manager.prepareFromExistingCache()
+        let status = await manager.status()
+        XCTAssertTrue(prepared)
+        XCTAssertTrue(status.isReady)
+        for file in ModelManager.requiredFiles {
+            XCTAssertEqual(
+                try Data(contentsOf: destination.appending(path: file)),
+                try Data(contentsOf: cache.appending(path: file))
+            )
+        }
+    }
+
+    func testModelManagerKeepsPartialInstallationWhenCacheIsInvalid() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = root.appending(path: "cache", directoryHint: .isDirectory)
+        let installBase = root.appending(path: "models", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: cache,
+            withIntermediateDirectories: true
+        )
+        try Data("source".utf8).write(
+            to: cache.appending(path: ModelManager.requiredFiles[0])
+        )
+
+        let manager = ModelManager(
+            baseDirectory: installBase,
+            existingCache: cache
+        )
+        let destination = await manager.modelDirectory
+        try FileManager.default.createDirectory(
+            at: destination,
+            withIntermediateDirectories: true
+        )
+        let partialFile = destination.appending(path: ModelManager.requiredFiles[0])
+        let partialData = Data("existing-partial-install".utf8)
+        try partialData.write(to: partialFile)
+
+        do {
+            _ = try await manager.prepareFromExistingCache()
+            XCTFail("Expected an invalid-cache error.")
+        } catch WhisprLocalError.modelInvalid {
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(try Data(contentsOf: partialFile), partialData)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                at: destination,
+                includingPropertiesForKeys: nil
+            ).count,
+            1
+        )
+    }
+
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

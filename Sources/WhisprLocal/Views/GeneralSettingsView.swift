@@ -32,7 +32,7 @@ struct GeneralSettingsView: View {
                 }
                 Text(
                     preferences.microphoneMode == .systemDefault
-                        ? "Follows macOS Sound settings, including AirPods. Bluetooth microphones can take several seconds to become ready."
+                        ? "Follows macOS Sound settings, including AirPods. Bluetooth microphones need a brief connection delay before recording can begin."
                         : "Uses the Mac’s built-in microphone even while audio plays through AirPods. This is the fastest and most reliable option."
                 )
                     .font(.caption)

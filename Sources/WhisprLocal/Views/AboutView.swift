@@ -10,8 +10,11 @@ struct AboutView: View {
                 .frame(width: 88, height: 88)
             Text("WhisprLocal")
                 .font(.title.bold())
-            Text("Private, native, local dictation for macOS.")
+            Text("Privacy-first, native, local dictation for macOS.")
                 .foregroundStyle(.secondary)
+            Text(versionText)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
             Text("No accounts, billing, telemetry, updater, or Docker. The Dock icon is temporary and the menu-bar icon is optional.")
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 440)
@@ -22,5 +25,12 @@ struct AboutView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+    }
+
+    private var versionText: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "Unknown"
+        let build = info?["CFBundleVersion"] as? String ?? "Unknown"
+        return "Version \(version) (\(build))"
     }
 }

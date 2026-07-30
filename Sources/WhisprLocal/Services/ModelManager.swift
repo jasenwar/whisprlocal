@@ -10,10 +10,9 @@ actor ModelManager {
     static let archiveSHA256 = "99f63605b3a85a54c250c0869670a687b7d6598a47bf2421515e1f839a76e150"
 
     let modelDirectory: URL
-    let existingCache = FileManager.default.homeDirectoryForCurrentUser
-        .appending(path: ".cache/openwhispr/parakeet-models/parakeet-unified-en-0.6b")
+    let existingCache: URL
 
-    init(baseDirectory: URL? = nil) {
+    init(baseDirectory: URL? = nil, existingCache: URL? = nil) {
         let base = baseDirectory ?? FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -22,6 +21,10 @@ actor ModelManager {
             path: "parakeet-unified-en-0.6b",
             directoryHint: .isDirectory
         )
+        self.existingCache = existingCache
+            ?? FileManager.default.homeDirectoryForCurrentUser.appending(
+                path: ".cache/openwhispr/parakeet-models/parakeet-unified-en-0.6b"
+            )
     }
 
     func status() -> ModelStatus {
@@ -34,16 +37,14 @@ actor ModelManager {
     }
 
     func prepareFromExistingCache() throws -> Bool {
-        guard !FileManager.default.fileExists(atPath: modelDirectory.path),
-              FileManager.default.fileExists(atPath: existingCache.path)
-        else { return status().isReady }
+        if status().isReady {
+            return true
+        }
+        guard FileManager.default.fileExists(atPath: existingCache.path) else {
+            return false
+        }
 
-        try FileManager.default.createDirectory(
-            at: modelDirectory.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
         try installRequiredFiles(from: existingCache, useClone: true)
-        try validate(directory: modelDirectory)
         return true
     }
 
@@ -85,7 +86,6 @@ actor ModelManager {
             directoryHint: .isDirectory
         )
         try installRequiredFiles(from: extracted, useClone: false)
-        try validate(directory: modelDirectory)
         progress(1)
     }
 
@@ -113,14 +113,23 @@ actor ModelManager {
     }
 
     private func installRequiredFiles(from source: URL, useClone: Bool) throws {
-        try FileManager.default.createDirectory(
-            at: modelDirectory,
+        let fileManager = FileManager.default
+        let parentDirectory = modelDirectory.deletingLastPathComponent()
+        let stagingDirectory = parentDirectory.appending(
+            path: ".\(modelDirectory.lastPathComponent).\(UUID().uuidString).installing",
+            directoryHint: .isDirectory
+        )
+
+        try fileManager.createDirectory(
+            at: stagingDirectory,
             withIntermediateDirectories: true
         )
+        defer { try? fileManager.removeItem(at: stagingDirectory) }
+
         for file in Self.requiredFiles {
             let sourceFile = source.appending(path: file)
-            let destinationFile = modelDirectory.appending(path: file)
-            guard FileManager.default.fileExists(atPath: sourceFile.path) else {
+            let destinationFile = stagingDirectory.appending(path: file)
+            guard fileManager.fileExists(atPath: sourceFile.path) else {
                 throw WhisprLocalError.modelInvalid("missing \(file)")
             }
             if useClone {
@@ -134,13 +143,20 @@ actor ModelManager {
                         )
                     }
                 }
-                guard result == 0 else {
-                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                if result != 0 {
+                    try? fileManager.removeItem(at: destinationFile)
+                    try fileManager.copyItem(at: sourceFile, to: destinationFile)
                 }
             } else {
-                try FileManager.default.copyItem(at: sourceFile, to: destinationFile)
+                try fileManager.copyItem(at: sourceFile, to: destinationFile)
             }
         }
+
+        try validate(directory: stagingDirectory)
+        if fileManager.fileExists(atPath: modelDirectory.path) {
+            try fileManager.removeItem(at: modelDirectory)
+        }
+        try fileManager.moveItem(at: stagingDirectory, to: modelDirectory)
     }
 
     private func sha256(of url: URL) throws -> String {
@@ -153,7 +169,7 @@ actor ModelManager {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    private static let requiredFiles = [
+    static let requiredFiles = [
         "encoder.int8.onnx",
         "decoder.int8.onnx",
         "joiner.int8.onnx",

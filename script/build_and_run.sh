@@ -25,6 +25,23 @@ build_app() {
     build
 }
 
+stop_existing_app() {
+  if ! /usr/bin/pgrep -x "$scheme" >/dev/null; then
+    return
+  fi
+
+  /usr/bin/osascript \
+    -e 'tell application id "com.jasenguerra.whisprlocal" to quit' \
+    >/dev/null 2>&1 || true
+  for _ in {1..20}; do
+    if ! /usr/bin/pgrep -x "$scheme" >/dev/null; then
+      return
+    fi
+    /bin/sleep 0.05
+  done
+  /usr/bin/pkill -x "$scheme" 2>/dev/null || true
+}
+
 case "$mode" in
   build)
     build_app
@@ -48,10 +65,12 @@ case "$mode" in
     /usr/bin/ditto "$release_source" "$release_destination"
     ;;
   run)
+    stop_existing_app
     build_app
-    open "$derived_data/Build/Products/Debug/WhisprLocal.app"
+    open -n "$derived_data/Build/Products/Debug/WhisprLocal.app"
     ;;
   debug)
+    stop_existing_app
     build_app
     lldb "$derived_data/Build/Products/Debug/WhisprLocal.app/Contents/MacOS/WhisprLocal"
     ;;
