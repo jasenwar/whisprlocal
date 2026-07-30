@@ -7,15 +7,82 @@ final class DictationCoordinatorTests: XCTestCase {
     func testMediaPauseFinishesBeforeAudioCaptureStarts() async throws {
         let events = LockedEventRecorder()
         let audio = FakeAudioCapture(events: events)
-        let media = OrderedMediaPlayback(events: events)
+        let media = OrderedMediaPlayback(
+            events: events,
+            delay: .milliseconds(40)
+        )
+        let fixture = try makeFixture(audio: audio, media: media)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        fixture.coordinator.beginListening()
+        try await Task.sleep(for: .milliseconds(90))
+
+        XCTAssertEqual(
+            events.values,
+            ["media-begin", "media-finished", "capture-start"]
+        )
+        XCTAssertTrue(audio.isRecording)
+        fixture.coordinator.cancel()
+    }
+
+    @MainActor
+    func testReleaseDuringPreparationNeverStartsDelayedCapture() async throws {
+        let events = LockedEventRecorder()
+        let audio = FakeAudioCapture(events: events)
+        let media = OrderedMediaPlayback(
+            events: events,
+            delay: .milliseconds(100)
+        )
+        let fixture = try makeFixture(audio: audio, media: media)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        fixture.coordinator.beginListening()
+        try await Task.sleep(for: .milliseconds(10))
+        fixture.coordinator.finishListening()
+        try await Task.sleep(for: .milliseconds(140))
+
+        XCTAssertFalse(audio.isRecording)
+        XCTAssertFalse(events.values.contains("capture-start"))
+        XCTAssertEqual(fixture.coordinator.state, .cancelled)
+    }
+
+    @MainActor
+    func testCancelDuringPreparationNeverStartsDelayedCapture() async throws {
+        let events = LockedEventRecorder()
+        let audio = FakeAudioCapture(events: events)
+        let media = OrderedMediaPlayback(
+            events: events,
+            delay: .milliseconds(100)
+        )
+        let fixture = try makeFixture(audio: audio, media: media)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        fixture.coordinator.beginListening()
+        try await Task.sleep(for: .milliseconds(10))
+        fixture.coordinator.cancel()
+        try await Task.sleep(for: .milliseconds(140))
+
+        XCTAssertFalse(audio.isRecording)
+        XCTAssertFalse(events.values.contains("capture-start"))
+        XCTAssertEqual(fixture.coordinator.state, .cancelled)
+    }
+
+    @MainActor
+    private func makeFixture(
+        audio: any AudioCapturing,
+        media: any MediaPlaybackControlling
+    ) throws -> (
+        coordinator: DictationCoordinator,
+        defaults: UserDefaults,
+        suiteName: String
+    ) {
         let database = try LocalDatabase(
             path: FileManager.default.temporaryDirectory
                 .appending(path: "WhisprLocalCoordinator-\(UUID().uuidString).sqlite")
                 .path
         )
-        let defaultsName = "WhisprLocalCoordinatorTests-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
-        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let suiteName = "WhisprLocalCoordinatorTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         let preferences = AppPreferences(defaults: defaults)
         preferences.pauseMediaDuringDictation = true
         preferences.cleanupEnabled = false
@@ -34,16 +101,7 @@ final class DictationCoordinatorTests: XCTestCase {
             mediaPlayback: media,
             soundPlayer: nil
         )
-
-        coordinator.beginListening()
-        try await Task.sleep(for: .milliseconds(90))
-
-        XCTAssertEqual(
-            events.values,
-            ["media-begin", "media-finished", "capture-start"]
-        )
-        XCTAssertTrue(audio.isRecording)
-        coordinator.cancel()
+        return (coordinator, defaults, suiteName)
     }
 }
 
@@ -72,7 +130,7 @@ private final class FakeAudioCapture: AudioCapturing {
         self.events = events
     }
 
-    func start(inputMode: AudioInputMode) {
+    func start() {
         events.append("capture-start")
         isRecording = true
     }
@@ -98,14 +156,16 @@ private final class GrantedMicrophonePermission: DictationPermissionChecking {
 
 private actor OrderedMediaPlayback: MediaPlaybackControlling {
     private let events: LockedEventRecorder
+    private let delay: Duration
 
-    init(events: LockedEventRecorder) {
+    init(events: LockedEventRecorder, delay: Duration) {
         self.events = events
+        self.delay = delay
     }
 
     func beginDictation(_ id: UUID) async {
         events.append("media-begin")
-        try? await Task.sleep(for: .milliseconds(40))
+        try? await Task.sleep(for: delay)
         events.append("media-finished")
     }
 

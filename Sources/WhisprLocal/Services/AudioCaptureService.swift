@@ -14,7 +14,7 @@ protocol AudioCapturing: AnyObject {
     var isRecording: Bool { get }
     var selectedInputDeviceName: String? { get }
 
-    func start(inputMode: AudioInputMode) throws
+    func start() throws
     func stop() -> [Float]
     func cancel()
 }
@@ -26,15 +26,15 @@ final class AudioCaptureService: AudioCapturing {
     private(set) var isRecording = false
     private(set) var selectedInputDeviceName: String?
 
-    func start(inputMode: AudioInputMode) throws {
+    func start() throws {
         guard !isRecording else { return }
         let engine = AVAudioEngine()
         let input = engine.inputNode
-        let selectedDevice = selectInputDevice(
-            for: inputMode,
-            inputNode: input
-        )
-        selectedInputDeviceName = selectedDevice.name
+        let selectedDeviceName =
+            AudioInputDeviceResolver.defaultInputDeviceName()
+            ?? AVCaptureDevice.default(for: .audio)?.localizedName
+            ?? "Unknown default input"
+        selectedInputDeviceName = selectedDeviceName
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             audioCaptureLogger.error(
@@ -44,7 +44,7 @@ final class AudioCaptureService: AudioCapturing {
         }
 
         audioCaptureLogger.info(
-            "Starting capture: mode=\(inputMode.rawValue, privacy: .public) device=\(selectedDevice.name, privacy: .public) rate=\(format.sampleRate, privacy: .public) channels=\(format.channelCount, privacy: .public) format=\(String(describing: format.commonFormat), privacy: .public) interleaved=\(format.isInterleaved, privacy: .public)"
+            "Starting capture: mode=systemDefault device=\(selectedDeviceName, privacy: .public) rate=\(format.sampleRate, privacy: .public) channels=\(format.channelCount, privacy: .public) format=\(String(describing: format.commonFormat), privacy: .public) interleaved=\(format.isInterleaved, privacy: .public)"
         )
         accumulator.reset(sampleRate: format.sampleRate)
         let tapHandler = AudioTapHandler(accumulator: accumulator)
@@ -110,44 +110,6 @@ final class AudioCaptureService: AudioCapturing {
         audioCaptureLogger.info("Capture cancelled and samples discarded")
     }
 
-    private func selectInputDevice(
-        for inputMode: AudioInputMode,
-        inputNode: AVAudioInputNode
-    ) -> AudioInputDeviceDescriptor {
-        if inputMode == .fastStart {
-            if let builtInDevice = AudioInputDeviceResolver.builtInInputDevice(),
-               let audioUnit = inputNode.audioUnit {
-                var deviceID = builtInDevice.id
-                let status = AudioUnitSetProperty(
-                    audioUnit,
-                    kAudioOutputUnitProperty_CurrentDevice,
-                    kAudioUnitScope_Global,
-                    0,
-                    &deviceID,
-                    UInt32(MemoryLayout<AudioDeviceID>.size)
-                )
-                if status == noErr {
-                    return builtInDevice
-                }
-                audioCaptureLogger.error(
-                    "Built-in microphone selection failed with OSStatus \(status, privacy: .public); using system default"
-                )
-            } else {
-                audioCaptureLogger.error(
-                    "No built-in microphone was available; using system default"
-                )
-            }
-        }
-
-        return AudioInputDeviceResolver.defaultInputDevice()
-            ?? AudioInputDeviceDescriptor(
-                id: kAudioObjectUnknown,
-                name: AVCaptureDevice.default(for: .audio)?.localizedName
-                    ?? "Unknown default input",
-                transportType: 0
-            )
-    }
-
     nonisolated static func resample(
         _ input: [Float],
         from sourceRate: Double,
@@ -168,18 +130,8 @@ final class AudioCaptureService: AudioCapturing {
     }
 }
 
-struct AudioInputDeviceDescriptor: Equatable, Sendable {
-    let id: AudioDeviceID
-    let name: String
-    let transportType: UInt32
-}
-
 enum AudioInputDeviceResolver {
-    static func builtInInputDevice() -> AudioInputDeviceDescriptor? {
-        preferredBuiltInInputDevice(from: inputDevices())
-    }
-
-    static func defaultInputDevice() -> AudioInputDeviceDescriptor? {
+    static func defaultInputDeviceName() -> String? {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultInputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -198,91 +150,9 @@ enum AudioInputDeviceResolver {
         guard status == noErr, deviceID != kAudioObjectUnknown else {
             return nil
         }
-        return descriptor(for: deviceID)
-    }
-
-    static func preferredBuiltInInputDevice(
-        from devices: [AudioInputDeviceDescriptor]
-    ) -> AudioInputDeviceDescriptor? {
-        let builtIn = devices.filter {
-            $0.transportType == kAudioDeviceTransportTypeBuiltIn
-        }
-        return builtIn.first {
-            $0.name.localizedCaseInsensitiveContains("microphone")
-        } ?? builtIn.first
-    }
-
-    private static func inputDevices() -> [AudioInputDeviceDescriptor] {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var size: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(
-            AudioObjectID(kAudioObjectSystemObject),
-            &address,
-            0,
-            nil,
-            &size
-        ) == noErr else {
-            return []
-        }
-
-        let count = Int(size) / MemoryLayout<AudioDeviceID>.size
-        guard count > 0 else { return [] }
-        var deviceIDs = [AudioDeviceID](repeating: 0, count: count)
-        let status = deviceIDs.withUnsafeMutableBytes { buffer in
-            AudioObjectGetPropertyData(
-                AudioObjectID(kAudioObjectSystemObject),
-                &address,
-                0,
-                nil,
-                &size,
-                buffer.baseAddress!
-            )
-        }
-        guard status == noErr else { return [] }
-
-        return deviceIDs.compactMap { deviceID in
-            guard hasInputStreams(deviceID) else { return nil }
-            return descriptor(for: deviceID)
-        }
-    }
-
-    private static func hasInputStreams(_ deviceID: AudioDeviceID) -> Bool {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyStreams,
-            mScope: kAudioObjectPropertyScopeInput,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var size: UInt32 = 0
-        return AudioObjectGetPropertyDataSize(
-            deviceID,
-            &address,
-            0,
-            nil,
-            &size
-        ) == noErr && size >= UInt32(MemoryLayout<AudioStreamID>.size)
-    }
-
-    private static func descriptor(
-        for deviceID: AudioDeviceID
-    ) -> AudioInputDeviceDescriptor? {
-        guard let name = stringProperty(
+        return stringProperty(
             kAudioObjectPropertyName,
             for: deviceID
-        ) else {
-            return nil
-        }
-        let transportType = uint32Property(
-            kAudioDevicePropertyTransportType,
-            for: deviceID
-        ) ?? 0
-        return AudioInputDeviceDescriptor(
-            id: deviceID,
-            name: name,
-            transportType: transportType
         )
     }
 
@@ -309,27 +179,6 @@ enum AudioInputDeviceResolver {
         return value.takeUnretainedValue() as String
     }
 
-    private static func uint32Property(
-        _ selector: AudioObjectPropertySelector,
-        for objectID: AudioObjectID
-    ) -> UInt32? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: selector,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var value: UInt32 = 0
-        var size = UInt32(MemoryLayout<UInt32>.size)
-        let status = AudioObjectGetPropertyData(
-            objectID,
-            &address,
-            0,
-            nil,
-            &size,
-            &value
-        )
-        return status == noErr ? value : nil
-    }
 }
 
 struct AudioSignalMetrics: Sendable {

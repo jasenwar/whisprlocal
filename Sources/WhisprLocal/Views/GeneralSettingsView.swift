@@ -19,12 +19,10 @@ struct GeneralSettingsView: View {
                 Text("Pressing any other key while Fn is held cancels recording, so normal Fn shortcuts continue to work.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Picker("Microphone", selection: $preferences.audioInputMode) {
-                    ForEach(AudioInputMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
+                LabeledContent("Microphone") {
+                    Text("System Default")
                 }
-                Text(preferences.audioInputMode.detail)
+                Text("Follows the current input in macOS Sound settings. AirPods are used when selected there; otherwise WhisprLocal uses the Mac’s microphone.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Toggle(

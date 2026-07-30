@@ -4,42 +4,17 @@ import XCTest
 @testable import WhisprLocal
 
 final class AudioAndEngineTests: XCTestCase {
-    func testBuiltInMicrophonePreferenceFavorsNamedMicrophone() {
-        let speakers = AudioInputDeviceDescriptor(
-            id: 1,
-            name: "Built-in Audio",
-            transportType: kAudioDeviceTransportTypeBuiltIn
-        )
-        let microphone = AudioInputDeviceDescriptor(
-            id: 2,
-            name: "MacBook Pro Microphone",
-            transportType: kAudioDeviceTransportTypeBuiltIn
-        )
-        let bluetooth = AudioInputDeviceDescriptor(
-            id: 3,
-            name: "AirPods",
-            transportType: kAudioDeviceTransportTypeBluetooth
-        )
-
-        XCTAssertEqual(
-            AudioInputDeviceResolver.preferredBuiltInInputDevice(
-                from: [speakers, bluetooth, microphone]
-            ),
-            microphone
-        )
-    }
-
     @MainActor
-    func testFastStartCaptureUsesBuiltInMicrophone() throws {
+    func testCaptureUsesSystemDefaultMicrophone() throws {
         let service = AudioCaptureService()
-        try service.start(inputMode: .fastStart)
+        let expectedDevice = try XCTUnwrap(
+            AudioInputDeviceResolver.defaultInputDeviceName()
+        )
+        try service.start()
         defer { service.cancel() }
 
         XCTAssertTrue(service.isRecording)
-        XCTAssertTrue(
-            try XCTUnwrap(service.selectedInputDeviceName)
-                .localizedCaseInsensitiveContains("microphone")
-        )
+        XCTAssertEqual(service.selectedInputDeviceName, expectedDevice)
     }
 
     func testAudioSignalMetricsDescribeAudibleSamples() {
@@ -89,10 +64,10 @@ final class AudioAndEngineTests: XCTestCase {
     }
 
     @MainActor
-    func testOpenWhisprStartCueSurvivesFastInputStartup() async throws {
+    func testOpenWhisprStartCueSurvivesInputStartup() async throws {
         let cuePlayer = try XCTUnwrap(SoundEffectPlayer())
         let capture = AudioCaptureService()
-        try capture.start(inputMode: .fastStart)
+        try capture.start()
         defer { capture.cancel() }
 
         try await Task.sleep(for: .milliseconds(120))

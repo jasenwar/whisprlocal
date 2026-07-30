@@ -285,7 +285,7 @@ final class DictationCoordinator {
     private func startCapture(for token: UUID) -> Bool {
         guard token == recordingToken, state == .listening else { return false }
         do {
-            try audio.start(inputMode: preferences.audioInputMode)
+            try audio.start()
             if let listeningRequestedAt {
                 let startupDelay = (
                     ContinuousClock.now - listeningRequestedAt
@@ -315,12 +315,8 @@ final class DictationCoordinator {
         }
         readyCueTask?.cancel()
 
-        let routeSettleDelay: Duration =
-            preferences.audioInputMode == .fastStart
-                ? .milliseconds(120)
-                : .milliseconds(220)
         readyCueTask = Task { [weak self] in
-            try? await Task.sleep(for: routeSettleDelay)
+            try? await Task.sleep(for: .milliseconds(220))
             guard let self,
                   !Task.isCancelled,
                   token == recordingToken,

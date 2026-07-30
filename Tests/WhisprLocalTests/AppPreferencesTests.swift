@@ -83,19 +83,6 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertFalse(reloaded.cleanupEnabled)
     }
 
-    func testAudioInputDefaultsToFastStartAndPersistsSystemDefault() {
-        let suiteName = "WhisprLocalTests.\(UUID())"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let preferences = AppPreferences(defaults: defaults)
-        XCTAssertEqual(preferences.audioInputMode, .fastStart)
-
-        preferences.audioInputMode = .systemDefault
-        let reloaded = AppPreferences(defaults: defaults)
-        XCTAssertEqual(reloaded.audioInputMode, .systemDefault)
-    }
-
     func testBottomCenterOverlayOriginUsesVisibleFrame() {
         let visibleFrame = NSRect(x: 100, y: 50, width: 1_200, height: 800)
         let size = NSSize(width: 240, height: 64)
