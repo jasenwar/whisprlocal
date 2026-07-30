@@ -20,6 +20,7 @@ final class AppEnvironment {
     private let monitor = GlobalFnMonitor()
     private let overlay = OverlayPanelController()
     private let statusItem = StatusItemController()
+    private let soundPlayer = SoundEffectPlayer()
     private(set) var modelStatus: ModelStatus = .missing
     private(set) var setupProgress: Double?
     private(set) var setupMessage: String?
@@ -45,7 +46,8 @@ final class AppEnvironment {
             snippetStore: snippets,
             preferences: preferences,
             permissions: permissions,
-            mediaPlayback: MediaPlaybackService()
+            mediaPlayback: MediaPlaybackService(),
+            soundPlayer: soundPlayer
         )
         coordinator.onStateChange = { [weak overlay, weak preferences] state in
             guard let preferences else { return }
@@ -107,6 +109,10 @@ final class AppEnvironment {
     func setMenuBarIconEnabled(_ enabled: Bool) {
         preferences.showMenuBarIcon = enabled
         statusItem.setEnabled(enabled)
+    }
+
+    func playReadySoundPreview() {
+        soundPlayer.play(named: "Tink")
     }
 
     func downloadModel() {

@@ -33,6 +33,7 @@ final class AppPreferences {
         static let cleanupEnabled = "cleanupEnabled"
         static let showMenuBarIcon = "showMenuBarIcon"
         static let overlayPosition = "overlayPosition"
+        static let audioInputMode = "audioInputMode"
         static let didShowCleanupWarning = "didShowCleanupWarning"
     }
 
@@ -67,6 +68,10 @@ final class AppPreferences {
         didSet { defaults.set(overlayPosition.rawValue, forKey: Key.overlayPosition) }
     }
 
+    var audioInputMode: AudioInputMode {
+        didSet { defaults.set(audioInputMode.rawValue, forKey: Key.audioInputMode) }
+    }
+
     var didShowCleanupWarning: Bool {
         didSet { defaults.set(didShowCleanupWarning, forKey: Key.didShowCleanupWarning) }
     }
@@ -80,6 +85,7 @@ final class AppPreferences {
             Key.cleanupEnabled: true,
             Key.showMenuBarIcon: false,
             Key.overlayPosition: OverlayPosition.topCenter.rawValue,
+            Key.audioInputMode: AudioInputMode.fastStart.rawValue,
             Key.didShowCleanupWarning: false
         ])
         autoPaste = defaults.bool(forKey: Key.autoPaste)
@@ -92,6 +98,9 @@ final class AppPreferences {
         overlayPosition = OverlayPosition(
             rawValue: defaults.string(forKey: Key.overlayPosition) ?? ""
         ) ?? .topCenter
+        audioInputMode = AudioInputMode(
+            rawValue: defaults.string(forKey: Key.audioInputMode) ?? ""
+        ) ?? .fastStart
         didShowCleanupWarning = defaults.bool(forKey: Key.didShowCleanupWarning)
     }
 }

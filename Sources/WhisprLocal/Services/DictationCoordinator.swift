@@ -29,9 +29,11 @@ final class DictationCoordinator {
     private let preferences: AppPreferences
     private let permissions: PermissionService
     private let mediaPlayback: any MediaPlaybackControlling
+    private let soundPlayer: SoundEffectPlayer
     private var targetApplication: NSRunningApplication?
     private var processingTask: Task<Void, Never>?
     private var mediaPauseTask: Task<Void, Never>?
+    private var readyCueTask: Task<Void, Never>?
     private var recordingToken = UUID()
     private var listeningRequestedAt: ContinuousClock.Instant?
 
@@ -46,7 +48,8 @@ final class DictationCoordinator {
         snippetStore: SnippetStore,
         preferences: AppPreferences,
         permissions: PermissionService,
-        mediaPlayback: any MediaPlaybackControlling
+        mediaPlayback: any MediaPlaybackControlling,
+        soundPlayer: SoundEffectPlayer
     ) {
         self.audio = audio
         self.transcriptionEngine = transcriptionEngine
@@ -59,6 +62,7 @@ final class DictationCoordinator {
         self.preferences = preferences
         self.permissions = permissions
         self.mediaPlayback = mediaPlayback
+        self.soundPlayer = soundPlayer
     }
 
     func beginListening() {
@@ -71,6 +75,14 @@ final class DictationCoordinator {
         transition(to: .listening)
         beginMediaPause(for: token)
 
+        if permissions.microphoneGranted {
+            guard startCapture(for: token) else { return }
+            processingTask = Task { [weak self] in
+                await self?.prewarmEngines()
+            }
+            return
+        }
+
         processingTask = Task { [weak self] in
             guard let self else { return }
             let permitted = await permissions.requestMicrophone()
@@ -80,28 +92,8 @@ final class DictationCoordinator {
                 fail(WhisprLocalError.microphoneDenied)
                 return
             }
-            do {
-                try audio.start()
-                if let listeningRequestedAt {
-                    let startupDelay = (
-                        ContinuousClock.now - listeningRequestedAt
-                    ).timeInterval
-                    dictationLogger.info(
-                        "Audio capture active after \(startupDelay, format: .fixed(precision: 3), privacy: .public)s"
-                    )
-                }
-                play(named: "Tink")
-            } catch {
-                dictationLogger.error(
-                    "Audio capture start failed: \(error.localizedDescription, privacy: .public)"
-                )
-                fail(error)
-                return
-            }
-
-            async let transcriberWarmup: Void = transcriptionEngine.prewarm()
-            async let cleanupWarmup: Void = cleanupEngine.prewarm()
-            _ = await (transcriberWarmup, cleanupWarmup)
+            guard startCapture(for: token) else { return }
+            await prewarmEngines()
         }
     }
 
@@ -111,6 +103,7 @@ final class DictationCoordinator {
             "Fn release received; recorderActive=\(self.audio.isRecording, privacy: .public)"
         )
         processingTask?.cancel()
+        readyCueTask?.cancel()
         let samples = audio.stop()
         dictationLogger.info(
             "Sending \(samples.count, privacy: .public) samples to transcription"
@@ -127,6 +120,7 @@ final class DictationCoordinator {
         guard state.isBusy else { return }
         dictationLogger.info("Dictation cancelled")
         processingTask?.cancel()
+        readyCueTask?.cancel()
         audio.cancel()
         endMediaPause(for: recordingToken)
         transition(to: .cancelled)
@@ -215,6 +209,7 @@ final class DictationCoordinator {
             "Dictation failed in state=\(self.state.label, privacy: .public): \(error.localizedDescription, privacy: .public)"
         )
         audio.cancel()
+        readyCueTask?.cancel()
         endMediaPause(for: recordingToken)
         transition(to: .failed(error.localizedDescription))
         play(named: "Basso")
@@ -248,7 +243,62 @@ final class DictationCoordinator {
 
     private func play(named name: String) {
         guard preferences.sounds else { return }
-        NSSound(named: NSSound.Name(name))?.play()
+        soundPlayer.play(named: name)
+    }
+
+    private func startCapture(for token: UUID) -> Bool {
+        guard token == recordingToken, state == .listening else { return false }
+        do {
+            try audio.start(inputMode: preferences.audioInputMode)
+            if let listeningRequestedAt {
+                let startupDelay = (
+                    ContinuousClock.now - listeningRequestedAt
+                ).timeInterval
+                dictationLogger.info(
+                    "Audio capture active after \(startupDelay, format: .fixed(precision: 3), privacy: .public)s"
+                )
+            }
+            scheduleReadyCue(for: token)
+            return true
+        } catch {
+            dictationLogger.error(
+                "Audio capture start failed: \(error.localizedDescription, privacy: .public)"
+            )
+            fail(error)
+            return false
+        }
+    }
+
+    private func scheduleReadyCue(for token: UUID) {
+        guard preferences.sounds else {
+            dictationLogger.info(
+                "Ready cue skipped because sounds are disabled"
+            )
+            return
+        }
+        readyCueTask?.cancel()
+
+        if preferences.audioInputMode == .fastStart {
+            soundPlayer.play(named: "Tink")
+            return
+        }
+
+        readyCueTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard let self,
+                  !Task.isCancelled,
+                  token == recordingToken,
+                  state == .listening else {
+                return
+            }
+            soundPlayer.play(named: "Tink")
+        }
+    }
+
+    private func prewarmEngines() async {
+        async let transcriberWarmup: Void = transcriptionEngine.prewarm()
+        async let cleanupWarmup: Void = cleanupEngine.prewarm()
+        _ = await (transcriberWarmup, cleanupWarmup)
     }
 
     private func beginMediaPause(for token: UUID) {

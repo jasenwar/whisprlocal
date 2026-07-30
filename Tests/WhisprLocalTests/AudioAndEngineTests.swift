@@ -1,8 +1,47 @@
 @preconcurrency import AVFoundation
+import CoreAudio
 import XCTest
 @testable import WhisprLocal
 
 final class AudioAndEngineTests: XCTestCase {
+    func testBuiltInMicrophonePreferenceFavorsNamedMicrophone() {
+        let speakers = AudioInputDeviceDescriptor(
+            id: 1,
+            name: "Built-in Audio",
+            transportType: kAudioDeviceTransportTypeBuiltIn
+        )
+        let microphone = AudioInputDeviceDescriptor(
+            id: 2,
+            name: "MacBook Pro Microphone",
+            transportType: kAudioDeviceTransportTypeBuiltIn
+        )
+        let bluetooth = AudioInputDeviceDescriptor(
+            id: 3,
+            name: "AirPods",
+            transportType: kAudioDeviceTransportTypeBluetooth
+        )
+
+        XCTAssertEqual(
+            AudioInputDeviceResolver.preferredBuiltInInputDevice(
+                from: [speakers, bluetooth, microphone]
+            ),
+            microphone
+        )
+    }
+
+    @MainActor
+    func testFastStartCaptureUsesBuiltInMicrophone() throws {
+        let service = AudioCaptureService()
+        try service.start(inputMode: .fastStart)
+        defer { service.cancel() }
+
+        XCTAssertTrue(service.isRecording)
+        XCTAssertTrue(
+            try XCTUnwrap(service.selectedInputDeviceName)
+                .localizedCaseInsensitiveContains("microphone")
+        )
+    }
+
     func testAudioSignalMetricsDescribeAudibleSamples() {
         let samples: [Float] = [0, 0.001, -0.002, 0.004]
         let metrics = AudioSignalMetrics(samples: samples)
@@ -12,6 +51,11 @@ final class AudioAndEngineTests: XCTestCase {
         XCTAssertGreaterThan(metrics.rms, 0.002)
         XCTAssertEqual(metrics.activeFraction, 0.75, accuracy: 0.000_001)
         XCTAssertEqual(metrics.duration(sampleRate: 4), 1)
+    }
+
+    @MainActor
+    func testSystemTinkSoundIsAvailable() {
+        XCTAssertNotNil(NSSound(named: NSSound.Name("Tink")))
     }
 
     func testAudioTapHandlerAcceptsBufferOffMainActor() async throws {
