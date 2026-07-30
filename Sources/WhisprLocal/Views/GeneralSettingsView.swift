@@ -42,6 +42,18 @@ struct GeneralSettingsView: View {
                     }
                 }
                 Toggle("Paste automatically", isOn: $preferences.autoPaste)
+                Toggle(
+                    "Keep last dictation on clipboard",
+                    isOn: $preferences.keepLastDictationOnClipboard
+                )
+                .disabled(!preferences.autoPaste)
+                Text(
+                    preferences.keepLastDictationOnClipboard
+                        ? "The final corrected text remains available to paste again."
+                        : "Your previous clipboard contents are restored after pasting."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 Toggle("Conservative Apple Intelligence cleanup", isOn: $preferences.cleanupEnabled)
             }
 

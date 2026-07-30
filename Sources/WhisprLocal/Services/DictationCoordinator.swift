@@ -169,7 +169,10 @@ final class DictationCoordinator {
                     targetApplication.activate()
                     try? await Task.sleep(for: .milliseconds(80))
                 }
-                try await pasteService.paste(corrected)
+                try await pasteService.paste(
+                    corrected,
+                    restoringClipboard: !preferences.keepLastDictationOnClipboard
+                )
                 transition(to: .succeeded)
             } else {
                 status = "completed_without_paste"

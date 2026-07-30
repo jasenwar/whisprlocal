@@ -28,6 +28,7 @@ enum OverlayPosition: String, CaseIterable, Identifiable, Sendable {
 final class AppPreferences {
     private enum Key {
         static let autoPaste = "autoPaste"
+        static let keepLastDictationOnClipboard = "keepLastDictationOnClipboard"
         static let sounds = "sounds"
         static let pauseMediaDuringDictation = "pauseMediaDuringDictation"
         static let cleanupEnabled = "cleanupEnabled"
@@ -41,6 +42,15 @@ final class AppPreferences {
 
     var autoPaste: Bool {
         didSet { defaults.set(autoPaste, forKey: Key.autoPaste) }
+    }
+
+    var keepLastDictationOnClipboard: Bool {
+        didSet {
+            defaults.set(
+                keepLastDictationOnClipboard,
+                forKey: Key.keepLastDictationOnClipboard
+            )
+        }
     }
 
     var sounds: Bool {
@@ -80,6 +90,7 @@ final class AppPreferences {
         self.defaults = defaults
         defaults.register(defaults: [
             Key.autoPaste: true,
+            Key.keepLastDictationOnClipboard: true,
             Key.sounds: true,
             Key.pauseMediaDuringDictation: true,
             Key.cleanupEnabled: true,
@@ -89,6 +100,9 @@ final class AppPreferences {
             Key.didShowCleanupWarning: false
         ])
         autoPaste = defaults.bool(forKey: Key.autoPaste)
+        keepLastDictationOnClipboard = defaults.bool(
+            forKey: Key.keepLastDictationOnClipboard
+        )
         sounds = defaults.bool(forKey: Key.sounds)
         pauseMediaDuringDictation = defaults.bool(
             forKey: Key.pauseMediaDuringDictation

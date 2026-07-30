@@ -3,7 +3,7 @@ import Foundation
 
 @MainActor
 protocol PasteService: AnyObject {
-    func paste(_ text: String) async throws
+    func paste(_ text: String, restoringClipboard: Bool) async throws
 }
 
 @MainActor
@@ -14,7 +14,7 @@ final class SystemPasteService: PasteService {
         self.pasteboard = pasteboard
     }
 
-    func paste(_ text: String) async throws {
+    func paste(_ text: String, restoringClipboard: Bool) async throws {
         guard AXIsProcessTrusted() else {
             throw WhisprLocalError.accessibilityDenied
         }
@@ -44,8 +44,10 @@ final class SystemPasteService: PasteService {
         down.post(tap: .cghidEventTap)
         up.post(tap: .cghidEventTap)
 
-        try? await Task.sleep(for: .milliseconds(350))
-        snapshot.restore(to: pasteboard)
+        if restoringClipboard {
+            try? await Task.sleep(for: .milliseconds(350))
+            snapshot.restore(to: pasteboard)
+        }
     }
 }
 
