@@ -59,7 +59,9 @@ contention is distinguishable from model latency.
 - A nonactivating `NSPanel` appears only for transient dictation state. It owns
   one fixed-size `NSHostingController` for its lifetime and updates that
   controller in place, avoiding synchronous layout, controller replacement,
-  resize, animation, and window-order churn between dictation stages.
+  resize, animation, and window-order churn between dictation stages. The
+  material is clipped to the capsule with no panel-edge shadow, so the
+  surrounding panel corners remain fully transparent.
 - Manual launch and reopen present Settings.
 - `SMAppService.mainApp` registers launch at login. The login launch Apple event
   suppresses Settings so startup remains invisible.

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 import XCTest
 @testable import WhisprLocal
 
@@ -127,5 +128,47 @@ final class AppPreferencesTests: XCTestCase {
             XCTAssertEqual(controller.displayedState, state)
         }
         controller.update(for: .idle, position: .bottomCenter)
+    }
+
+    func testOverlayCornersRenderFullyTransparent() throws {
+        let view = NSHostingView(
+            rootView: DictationOverlayView(state: .listening)
+        )
+        view.frame = NSRect(
+            origin: .zero,
+            size: DictationOverlayView.contentSize
+        )
+        view.layoutSubtreeIfNeeded()
+
+        let representation = try XCTUnwrap(
+            view.bitmapImageRepForCachingDisplay(in: view.bounds)
+        )
+        view.cacheDisplay(in: view.bounds, to: representation)
+
+        let inset = 8
+        let samplePoints = [
+            NSPoint(x: inset, y: inset),
+            NSPoint(x: representation.pixelsWide - 1 - inset, y: inset),
+            NSPoint(x: inset, y: representation.pixelsHigh - 1 - inset),
+            NSPoint(
+                x: representation.pixelsWide - 1 - inset,
+                y: representation.pixelsHigh - 1 - inset
+            ),
+        ]
+
+        for point in samplePoints {
+            let color = try XCTUnwrap(
+                representation.colorAt(
+                    x: Int(point.x),
+                    y: Int(point.y)
+                )
+            )
+            XCTAssertEqual(
+                color.alphaComponent,
+                0,
+                accuracy: 1.0 / 255.0,
+                "Overlay corner at \(point) must remain transparent."
+            )
+        }
     }
 }

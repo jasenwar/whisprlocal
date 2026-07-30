@@ -29,7 +29,7 @@ struct DictationOverlayView: View {
         )
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.14)))
-        .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+        .clipShape(Capsule())
     }
 
     private var color: Color {
