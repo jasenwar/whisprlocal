@@ -19,9 +19,10 @@ struct LocalCleanupResponse: Sendable {
 }
 
 protocol LocalCleanupTransport: Sendable {
-    func ensureReady() async throws
+    func ensureReady() async throws -> UInt64
     func complete(_ request: LocalCleanupRequest) async throws -> LocalCleanupResponse
     func recycle() async
+    func recycleAfterTimeout() async
     func shutdown() async
 }
 
@@ -36,6 +37,7 @@ actor LlamaServerController: LocalCleanupTransport {
     private var logHandle: FileHandle?
     private var port: UInt16?
     private var apiKey: String?
+    private var processGeneration: UInt64 = 0
 
     init(
         executableURL: URL,
@@ -56,11 +58,11 @@ actor LlamaServerController: LocalCleanupTransport {
         )
     }
 
-    func ensureReady() async throws {
+    func ensureReady() async throws -> UInt64 {
         if let process, process.isRunning,
            let port, let apiKey,
            await healthIsReady(port: port, apiKey: apiKey) {
-            return
+            return processGeneration
         }
 
         await stopOwnedProcess()
@@ -75,6 +77,7 @@ actor LlamaServerController: LocalCleanupTransport {
             await stopOwnedProcess()
             throw error
         }
+        return processGeneration
     }
 
     func complete(_ request: LocalCleanupRequest) async throws -> LocalCleanupResponse {
@@ -126,6 +129,10 @@ actor LlamaServerController: LocalCleanupTransport {
         await stopOwnedProcess()
     }
 
+    func recycleAfterTimeout() async {
+        await stopOwnedProcess(gracePeriod: .milliseconds(150))
+    }
+
     func shutdown() async {
         await stopOwnedProcess()
     }
@@ -140,13 +147,7 @@ actor LlamaServerController: LocalCleanupTransport {
     }
 
     private func start(port: UInt16, apiKey: String) throws {
-        try FileManager.default.createDirectory(
-            at: logURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        if !FileManager.default.fileExists(atPath: logURL.path) {
-            _ = FileManager.default.createFile(atPath: logURL.path, contents: nil)
-        }
+        try LocalCleanupLogPolicy.prepareLogFile(at: logURL)
         let handle = try FileHandle(forWritingTo: logURL)
         try handle.seekToEnd()
 
@@ -166,7 +167,8 @@ actor LlamaServerController: LocalCleanupTransport {
             "--offline",
             "--api-key", apiKey,
             "--log-colors", "off",
-            "--log-timestamps"
+            "--log-timestamps",
+            "--verbosity", "1"
         ]
         launched.standardOutput = handle
         launched.standardError = handle
@@ -184,6 +186,7 @@ actor LlamaServerController: LocalCleanupTransport {
         }
 
         self.process = launched
+        processGeneration &+= 1
         logHandle = handle
         self.port = port
         self.apiKey = apiKey
@@ -224,7 +227,9 @@ actor LlamaServerController: LocalCleanupTransport {
         return health.status == "ok"
     }
 
-    private func stopOwnedProcess() async {
+    private func stopOwnedProcess(
+        gracePeriod: Duration = .seconds(2)
+    ) async {
         guard let owned = process else {
             clearProcessState()
             return
@@ -234,7 +239,7 @@ actor LlamaServerController: LocalCleanupTransport {
         if owned.isRunning {
             owned.terminate()
             let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: .seconds(2))
+            let deadline = clock.now.advanced(by: gracePeriod)
             while owned.isRunning, clock.now < deadline {
                 try? await Task.sleep(for: .milliseconds(50))
             }
@@ -303,6 +308,43 @@ actor LlamaServerController: LocalCleanupTransport {
         configuration.timeoutIntervalForResource = 10
         configuration.waitsForConnectivity = false
         return URLSession(configuration: configuration)
+    }
+}
+
+enum LocalCleanupLogPolicy {
+    static let maximumBytes: Int64 = 1_048_576
+
+    static func prepareLogFile(
+        at logURL: URL,
+        maximumBytes limit: Int64 = maximumBytes
+    ) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(
+            at: logURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        if fileManager.fileExists(atPath: logURL.path) {
+            let attributes = try fileManager.attributesOfItem(
+                atPath: logURL.path
+            )
+            let byteCount = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+            if byteCount >= limit {
+                let archiveURL = logURL
+                    .deletingPathExtension()
+                    .appendingPathExtension("previous.log")
+                if fileManager.fileExists(atPath: archiveURL.path) {
+                    try fileManager.removeItem(at: archiveURL)
+                }
+                try fileManager.moveItem(at: logURL, to: archiveURL)
+            }
+        }
+
+        if !fileManager.fileExists(atPath: logURL.path) {
+            guard fileManager.createFile(atPath: logURL.path, contents: nil) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+        }
     }
 }
 

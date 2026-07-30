@@ -37,6 +37,8 @@ enum LocalCleanupRuntimeConfiguration {
     static let verifiedLlamaCommit = "11b068d06"
     static let contextSize = 2_048
     static let promptCacheSlot = 0
+    static let requestOverheadTokens = 96
+    static let contextSafetyMarginTokens = 128
 
     static func requestDeadline(wordCount: Int) -> Duration {
         switch wordCount {
@@ -51,5 +53,32 @@ enum LocalCleanupRuntimeConfiguration {
 
     static func maximumOutputTokens(estimatedInputTokens: Int) -> Int {
         min(768, max(24, Int(Double(estimatedInputTokens) * 1.2) + 24))
+    }
+
+    static func estimatedRequestTokens(
+        systemPrompt: String,
+        userPrompt: String
+    ) -> Int {
+        estimatedTokenCount(systemPrompt)
+            + estimatedTokenCount(userPrompt)
+            + requestOverheadTokens
+    }
+
+    static func requestFitsContext(
+        systemPrompt: String,
+        userPrompt: String,
+        maximumOutputTokens: Int
+    ) -> Bool {
+        estimatedRequestTokens(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt
+        )
+            + maximumOutputTokens
+            + contextSafetyMarginTokens
+            <= contextSize
+    }
+
+    private static func estimatedTokenCount(_ text: String) -> Int {
+        max(1, (text.utf8.count + 2) / 3)
     }
 }

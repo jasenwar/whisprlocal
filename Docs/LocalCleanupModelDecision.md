@@ -22,21 +22,22 @@ production candidate.
   `789f717355fb2574becfaa70601714c78908bd1e5d6c6cadd6b8ccc98060d0f7`
 - License: Apache-2.0 model, MIT runtime
 
-Final three-round result:
+Latest three-round result with the expanded production regression matrix:
 
-- Server startup: 536 ms
+- Server startup: 647 ms
 - Prompt warmup: 714 ms
-- Warm median: 284 ms
-- Warm P95: 1,588 ms
-- Prompt cache reuse: 376 cached tokens per measured request
-- Production-shaped validation: 24/24
+- Warm median: 290 ms
+- Warm P95: 1,617 ms
+- Prompt cache reuse: 500 cached tokens per measured request
+- Production-shaped validation: 39/39
 
-Short fixtures took 226–415 ms. The medium technical request took
-866–869 ms. The longest fixture took 1,585–1,589 ms. Safe deterministic
-finalization supplied missing initial capitalization and terminal punctuation;
-the model handled semantic cleanup and preserved names, email addresses,
-technical identifiers, quantities, prompt-like dictated text, and explicit
-self-corrections.
+Short fixtures took 186–423 ms. The medium technical request took 673–897 ms.
+The longest fixture took 1,336–1,621 ms. Safe deterministic finalization
+supplied missing initial capitalization and terminal punctuation. The expanded
+matrix also covers spoken punctuation, meaningful uses of "actually",
+protected quoted speech, list intent, and Windows paths in addition to names,
+email addresses, technical identifiers, quantities, prompt-like dictated text,
+and explicit self-corrections.
 
 ## Rejected candidates
 
@@ -63,5 +64,9 @@ Production integration implements the benchmark boundary:
    commands, and code are protected with exact placeholders.
 5. Empty, oversized, formatted, or placeholder-altering output is rejected.
    Raw Parakeet text remains the fallback on every failure.
-6. Fn press prewarms transcription and cleanup concurrently. The helper exits
-   after ten idle minutes and on normal application termination.
+6. Fn press prewarms transcription and seeds the cleanup prompt cache
+   concurrently. The helper exits after ten idle minutes and on normal
+   application termination.
+7. A conservative request-budget estimate rejects transcripts that cannot fit
+   the 2,048-token context, and timeouts use a short forced-recycle grace so raw
+   fallback is not delayed.

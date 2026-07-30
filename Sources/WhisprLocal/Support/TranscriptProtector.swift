@@ -42,12 +42,19 @@ struct ProtectedTranscript: Sendable {
 }
 
 enum TranscriptProtector {
+    private struct Candidate {
+        let range: NSRange
+        let replacement: String?
+        let priority: Int
+    }
+
     private static let patterns = [
         #"https?://[^\s<>()]+"#,
         #"\b[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}\b"#,
         #"\b(?:\d{1,3}\.){3}\d{1,3}\b"#,
         #"\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[1-5][0-9A-Fa-f]{3}-[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}\b"#,
-        #"(?:\\\\[^\\\s]+\\[^\\\n]+|[A-Za-z]:\\[^\n]+|(?<!\w)/(?:[^\s/]+/)*[^\s]+)"#,
+        #""[^"\n]+"|“[^”\n]+”"#,
+        #""(?:[A-Za-z]:\\|\\\\)[^"\n]+"|(?:[A-Za-z]:\\|\\\\)[^\s,;:!?]+|(?<!\w)/(?:[^\s/]+/)*[^\s]+"#,
         #"`[^`\n]+`|```[\s\S]*?```"#,
         #"\$\d+(?:[.,]\d+)*"#,
         #"\b\d{1,2}:\d{2}(?:\s?[APap][Mm])?\b"#,
@@ -62,15 +69,18 @@ enum TranscriptProtector {
 
     static func protect(_ text: String, dictionary: [String]) -> ProtectedTranscript {
         let fullRange = NSRange(text.startIndex..., in: text)
-        var candidates: [NSRange] = []
+        var candidates: [Candidate] = []
 
         for pattern in patterns {
             guard let regex = try? NSRegularExpression(pattern: pattern) else {
                 continue
             }
-            candidates.append(
-                contentsOf: regex.matches(in: text, range: fullRange).map(\.range)
-            )
+            candidates.append(contentsOf: regex.matches(
+                in: text,
+                range: fullRange
+            ).map {
+                Candidate(range: $0.range, replacement: nil, priority: 0)
+            })
         }
 
         for term in dictionary.prefix(250) {
@@ -84,41 +94,56 @@ enum TranscriptProtector {
             ) else {
                 continue
             }
-            candidates.append(
-                contentsOf: regex.matches(in: text, range: fullRange).map(\.range)
-            )
+            candidates.append(contentsOf: regex.matches(
+                in: text,
+                range: fullRange
+            ).map {
+                Candidate(
+                    range: $0.range,
+                    replacement: trimmed,
+                    priority: 1
+                )
+            })
         }
 
         let accepted = nonOverlapping(candidates)
         var protectedText = text
         var replacements: [String: String] = [:]
 
-        for (offset, range) in accepted.enumerated().reversed() {
-            guard let swiftRange = Range(range, in: protectedText) else {
+        for (offset, candidate) in accepted.enumerated().reversed() {
+            guard let swiftRange = Range(candidate.range, in: protectedText) else {
                 continue
             }
             let placeholder = String(format: "[[PROTECTED_%04d]]", offset + 1)
-            replacements[placeholder] = String(protectedText[swiftRange])
+            replacements[placeholder] =
+                candidate.replacement ?? String(protectedText[swiftRange])
             protectedText.replaceSubrange(swiftRange, with: placeholder)
         }
 
         return ProtectedTranscript(text: protectedText, replacements: replacements)
     }
 
-    private static func nonOverlapping(_ ranges: [NSRange]) -> [NSRange] {
-        let sorted = ranges
-            .filter { $0.location != NSNotFound && $0.length > 0 }
+    private static func nonOverlapping(
+        _ candidates: [Candidate]
+    ) -> [Candidate] {
+        let sorted = candidates
+            .filter {
+                $0.range.location != NSNotFound && $0.range.length > 0
+            }
             .sorted {
-                if $0.location == $1.location {
-                    return $0.length > $1.length
+                if $0.range.location == $1.range.location {
+                    if $0.range.length == $1.range.length {
+                        return $0.priority < $1.priority
+                    }
+                    return $0.range.length > $1.range.length
                 }
-                return $0.location < $1.location
+                return $0.range.location < $1.range.location
             }
 
-        var accepted: [NSRange] = []
+        var accepted: [Candidate] = []
         for candidate in sorted {
             guard !accepted.contains(where: {
-                NSIntersectionRange($0, candidate).length > 0
+                NSIntersectionRange($0.range, candidate.range).length > 0
             }) else {
                 continue
             }
@@ -130,6 +155,7 @@ enum TranscriptProtector {
 
 enum LocalCleanupValidationError: LocalizedError, Sendable {
     case emptyOutput
+    case inputTooLong
     case invalidLength
     case invalidPlaceholder
     case unexpectedFormatting
@@ -139,6 +165,7 @@ enum LocalCleanupValidationError: LocalizedError, Sendable {
     var errorDescription: String? {
         switch self {
         case .emptyOutput: "Local cleanup returned empty text."
+        case .inputTooLong: "The transcript is too long for safe local cleanup."
         case .invalidLength: "Local cleanup changed the transcript length unexpectedly."
         case .invalidPlaceholder: "Local cleanup changed a protected value."
         case .unexpectedFormatting: "Local cleanup returned commentary or formatting."
