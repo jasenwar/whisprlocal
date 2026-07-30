@@ -34,7 +34,6 @@ actor LlamaServerController: LocalCleanupTransport {
     private let startupTimeout: Duration
 
     private var process: Process?
-    private var logHandle: FileHandle?
     private var port: UInt16?
     private var apiKey: String?
     private var processGeneration: UInt64 = 0
@@ -59,9 +58,13 @@ actor LlamaServerController: LocalCleanupTransport {
     }
 
     func ensureReady() async throws -> UInt64 {
+        let started = ContinuousClock.now
         if let process, process.isRunning,
            let port, let apiKey,
            await healthIsReady(port: port, apiKey: apiKey) {
+            localCleanupServerLogger.info(
+                "Helper health check reused generation=\(self.processGeneration, privacy: .public) in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+            )
             return processGeneration
         }
 
@@ -77,6 +80,9 @@ actor LlamaServerController: LocalCleanupTransport {
             await stopOwnedProcess()
             throw error
         }
+        localCleanupServerLogger.info(
+            "Helper became ready generation=\(self.processGeneration, privacy: .public) in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+        )
         return processGeneration
     }
 
@@ -84,6 +90,10 @@ actor LlamaServerController: LocalCleanupTransport {
         guard let process, process.isRunning, let port, let apiKey else {
             throw WhisprLocalError.cleanupRuntimeUnavailable
         }
+        let started = ContinuousClock.now
+        localCleanupServerLogger.info(
+            "Loopback completion started generation=\(self.processGeneration, privacy: .public) maximumOutputTokens=\(request.maximumOutputTokens, privacy: .public)"
+        )
 
         let endpoint = URL(string: "http://127.0.0.1:\(port)/v1/chat/completions")!
         var urlRequest = URLRequest(url: endpoint)
@@ -119,6 +129,9 @@ actor LlamaServerController: LocalCleanupTransport {
         guard let text = decoded.choices.first?.message.content else {
             throw LocalCleanupValidationError.invalidResponse
         }
+        localCleanupServerLogger.info(
+            "Loopback completion returned generation=\(self.processGeneration, privacy: .public) outputCharacters=\(text.count, privacy: .public) cachedTokens=\(decoded.usage?.promptTokensDetails?.cachedTokens ?? -1, privacy: .public) in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+        )
         return LocalCleanupResponse(
             text: text,
             cachedPromptTokens: decoded.usage?.promptTokensDetails?.cachedTokens
@@ -148,8 +161,6 @@ actor LlamaServerController: LocalCleanupTransport {
 
     private func start(port: UInt16, apiKey: String) throws {
         try LocalCleanupLogPolicy.prepareLogFile(at: logURL)
-        let handle = try FileHandle(forWritingTo: logURL)
-        try handle.seekToEnd()
 
         let launched = Process()
         launched.executableURL = executableURL
@@ -166,12 +177,13 @@ actor LlamaServerController: LocalCleanupTransport {
             "--no-webui",
             "--offline",
             "--api-key", apiKey,
+            "--log-file", logURL.path,
             "--log-colors", "off",
             "--log-timestamps",
             "--verbosity", "1"
         ]
-        launched.standardOutput = handle
-        launched.standardError = handle
+        launched.standardOutput = FileHandle.nullDevice
+        launched.standardError = FileHandle.nullDevice
         launched.terminationHandler = { process in
             localCleanupServerLogger.info(
                 "Owned helper exited with status \(process.terminationStatus, privacy: .public)"
@@ -181,13 +193,11 @@ actor LlamaServerController: LocalCleanupTransport {
         do {
             try launched.run()
         } catch {
-            try? handle.close()
             throw WhisprLocalError.cleanupRuntimeUnavailable
         }
 
         self.process = launched
         processGeneration &+= 1
-        logHandle = handle
         self.port = port
         self.apiKey = apiKey
         localCleanupServerLogger.info(
@@ -254,8 +264,6 @@ actor LlamaServerController: LocalCleanupTransport {
     }
 
     private func clearProcessState() {
-        try? logHandle?.close()
-        logHandle = nil
         port = nil
         apiKey = nil
     }

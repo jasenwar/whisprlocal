@@ -51,6 +51,17 @@ enum LocalCleanupRuntimeConfiguration {
         }
     }
 
+    static func endToEndDeadline(wordCount: Int) -> Duration {
+        switch wordCount {
+        case ...40:
+            .milliseconds(2_250)
+        case 41...150:
+            .milliseconds(3_250)
+        default:
+            .milliseconds(4_750)
+        }
+    }
+
     static func maximumOutputTokens(estimatedInputTokens: Int) -> Int {
         min(768, max(24, Int(Double(estimatedInputTokens) * 1.2) + 24))
     }

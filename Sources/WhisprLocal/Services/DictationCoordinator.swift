@@ -18,7 +18,7 @@ final class DictationCoordinator {
     var onStateChange: ((DictationState) -> Void)?
 
     private var machine = DictationStateMachine()
-    private let audio: AudioCaptureService
+    private let audio: any AudioCapturing
     private let transcriptionEngine: any TranscriptionEngine
     private let cleanupEngine: any CleanupEngine
     private let pasteService: any PasteService
@@ -27,18 +27,21 @@ final class DictationCoordinator {
     private let dictionaryStore: DictionaryStore
     private let snippetStore: SnippetStore
     private let preferences: AppPreferences
-    private let permissions: PermissionService
+    private let permissions: any DictationPermissionChecking
     private let mediaPlayback: any MediaPlaybackControlling
     private let soundPlayer: SoundEffectPlayer?
     private var targetApplication: NSRunningApplication?
+    private var capturePreparationTask: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?
+    private var transcriptionWarmupTask: Task<Void, Never>?
+    private var cleanupWarmupTask: Task<Void, Never>?
     private var mediaPauseTask: Task<Void, Never>?
     private var readyCueTask: Task<Void, Never>?
     private var recordingToken = UUID()
     private var listeningRequestedAt: ContinuousClock.Instant?
 
     init(
-        audio: AudioCaptureService,
+        audio: any AudioCapturing,
         transcriptionEngine: any TranscriptionEngine,
         cleanupEngine: any CleanupEngine,
         pasteService: any PasteService,
@@ -47,7 +50,7 @@ final class DictationCoordinator {
         dictionaryStore: DictionaryStore,
         snippetStore: SnippetStore,
         preferences: AppPreferences,
-        permissions: PermissionService,
+        permissions: any DictationPermissionChecking,
         mediaPlayback: any MediaPlaybackControlling,
         soundPlayer: SoundEffectPlayer?
     ) {
@@ -73,27 +76,8 @@ final class DictationCoordinator {
         listeningRequestedAt = .now
         dictationLogger.info("Fn press received; preparing capture")
         transition(to: .listening)
-        beginMediaPause(for: token)
-
-        if permissions.microphoneGranted {
-            guard startCapture(for: token) else { return }
-            processingTask = Task { [weak self] in
-                await self?.prewarmTranscriber()
-            }
-            return
-        }
-
-        processingTask = Task { [weak self] in
-            guard let self else { return }
-            let permitted = await permissions.requestMicrophone()
-            guard !Task.isCancelled, token == recordingToken else { return }
-            guard permitted else {
-                dictationLogger.error("Microphone permission was denied")
-                fail(WhisprLocalError.microphoneDenied)
-                return
-            }
-            guard startCapture(for: token) else { return }
-            await prewarmTranscriber()
+        capturePreparationTask = Task { [weak self] in
+            await self?.prepareCapture(for: token)
         }
     }
 
@@ -102,8 +86,19 @@ final class DictationCoordinator {
         dictationLogger.info(
             "Fn release received; recorderActive=\(self.audio.isRecording, privacy: .public)"
         )
-        processingTask?.cancel()
         readyCueTask?.cancel()
+        guard audio.isRecording else {
+            dictationLogger.info(
+                "Fn release occurred before capture became active; cancelling short dictation"
+            )
+            capturePreparationTask?.cancel()
+            capturePreparationTask = nil
+            endMediaPause(for: recordingToken)
+            transition(to: .cancelled)
+            settleToIdle()
+            return
+        }
+
         let samples = audio.stop()
         dictationLogger.info(
             "Sending \(samples.count, privacy: .public) samples to transcription"
@@ -119,6 +114,8 @@ final class DictationCoordinator {
     func cancel() {
         guard state.isBusy else { return }
         dictationLogger.info("Dictation cancelled")
+        capturePreparationTask?.cancel()
+        capturePreparationTask = nil
         processingTask?.cancel()
         readyCueTask?.cancel()
         audio.cancel()
@@ -131,6 +128,10 @@ final class DictationCoordinator {
     private func process(samples: [Float]) async {
         let started = ContinuousClock.now
         do {
+            // The unstructured warmup remains alive if it is still finishing.
+            // Clearing our reference allows the next dictation to start a fresh
+            // health check without cancelling this one.
+            transcriptionWarmupTask = nil
             let hotwords = dictionaryStore.terms + snippetStore.snippets.map(\.trigger)
             let transcriptionStarted = ContinuousClock.now
             let transcript = try await transcriptionEngine.transcribe(
@@ -148,17 +149,35 @@ final class DictationCoordinator {
             var corrected = transcript.text
             var cleanupIdentifier = "raw fallback"
             if preferences.cleanupEnabled {
+                let cleanupWarmup = cleanupWarmupTask
+                cleanupWarmupTask = nil
+                let wordCount = transcript.text
+                    .split(whereSeparator: \.isWhitespace)
+                    .count
+                let cleanupDeadline =
+                    LocalCleanupRuntimeConfiguration.endToEndDeadline(
+                        wordCount: wordCount
+                    )
+                let cleanupStarted = ContinuousClock.now
+                dictationLogger.info(
+                    "Cleanup pipeline started with endToEndDeadline=\(cleanupDeadline.timeInterval, format: .fixed(precision: 3), privacy: .public)s warmupPending=\(cleanupWarmup != nil, privacy: .public)"
+                )
                 do {
-                    let cleanupStarted = ContinuousClock.now
-                    corrected = try await cleanupEngine.correct(
+                    corrected = try await BoundedCleanupExecutor.correct(
+                        using: cleanupEngine,
+                        warmupTask: cleanupWarmup,
                         text: transcript.text,
-                        dictionary: dictionaryStore.terms
+                        dictionary: dictionaryStore.terms,
+                        timeout: cleanupDeadline
                     )
                     dictationLogger.info(
                         "Cleanup stage completed in \((ContinuousClock.now - cleanupStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
                     )
                     cleanupIdentifier = LocalCleanupModelManifest.production.displayName
                 } catch {
+                    dictationLogger.error(
+                        "Cleanup fell back to raw text after \((ContinuousClock.now - cleanupStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s: \(error.localizedDescription, privacy: .public)"
+                    )
                     showCleanupFallbackWarning(error)
                 }
             } else {
@@ -225,6 +244,8 @@ final class DictationCoordinator {
             "Dictation failed in state=\(self.state.label, privacy: .public): \(error.localizedDescription, privacy: .public)"
         )
         audio.cancel()
+        capturePreparationTask?.cancel()
+        capturePreparationTask = nil
         readyCueTask?.cancel()
         endMediaPause(for: recordingToken)
         transition(to: .failed(error.localizedDescription))
@@ -274,6 +295,7 @@ final class DictationCoordinator {
                 )
             }
             scheduleReadyCue(for: token)
+            startWarmups()
             return true
         } catch {
             dictationLogger.error(
@@ -309,10 +331,64 @@ final class DictationCoordinator {
         }
     }
 
-    private func prewarmTranscriber() async {
-        async let transcriptionWarmup: Void = transcriptionEngine.prewarm()
-        async let cleanupWarmup: Void = cleanupEngine.prewarm()
-        _ = await (transcriptionWarmup, cleanupWarmup)
+    private func prepareCapture(for token: UUID) async {
+        defer {
+            if token == recordingToken {
+                capturePreparationTask = nil
+            }
+        }
+
+        if !permissions.microphoneGranted {
+            let permitted = await permissions.requestMicrophone()
+            guard !Task.isCancelled, token == recordingToken else { return }
+            guard permitted else {
+                dictationLogger.error("Microphone permission was denied")
+                fail(WhisprLocalError.microphoneDenied)
+                return
+            }
+        }
+
+        guard !Task.isCancelled,
+              token == recordingToken,
+              state == .listening else {
+            return
+        }
+
+        await beginMediaPause(for: token)
+        guard !Task.isCancelled,
+              token == recordingToken,
+              state == .listening else {
+            return
+        }
+        _ = startCapture(for: token)
+    }
+
+    private func startWarmups() {
+        if transcriptionWarmupTask == nil {
+            transcriptionWarmupTask = Task { [transcriptionEngine] in
+                let started = ContinuousClock.now
+                await transcriptionEngine.prewarm()
+                dictationLogger.info(
+                    "Parakeet warmup finished in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+                )
+            }
+        }
+
+        guard preferences.cleanupEnabled else {
+            dictationLogger.info(
+                "Cleanup warmup skipped because cleanup is disabled"
+            )
+            return
+        }
+        if cleanupWarmupTask == nil {
+            cleanupWarmupTask = Task { [cleanupEngine] in
+                let started = ContinuousClock.now
+                await cleanupEngine.prewarm()
+                dictationLogger.info(
+                    "Cleanup warmup finished in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+                )
+            }
+        }
     }
 
     private func activateTargetIfNeeded() async {
@@ -334,19 +410,35 @@ final class DictationCoordinator {
         )
     }
 
-    private func beginMediaPause(for token: UUID) {
-        guard preferences.pauseMediaDuringDictation else { return }
-        mediaPauseTask = Task { [mediaPlayback] in
+    private func beginMediaPause(for token: UUID) async {
+        guard preferences.pauseMediaDuringDictation else {
+            dictationLogger.info(
+                "Media pause skipped because the preference is disabled"
+            )
+            return
+        }
+
+        let started = ContinuousClock.now
+        let task = Task { [mediaPlayback] in
             await mediaPlayback.beginDictation(token)
         }
+        mediaPauseTask = task
+        await task.value
+        dictationLogger.info(
+            "Media pause preparation completed before capture in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+        )
     }
 
     private func endMediaPause(for token: UUID) {
-        let pauseTask = mediaPauseTask
+        guard let pauseTask = mediaPauseTask else { return }
         mediaPauseTask = nil
         Task { [mediaPlayback] in
-            await pauseTask?.value
+            await pauseTask.value
+            let started = ContinuousClock.now
             await mediaPlayback.endDictation(token)
+            dictationLogger.info(
+                "Media resume handling completed in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+            )
         }
     }
 }

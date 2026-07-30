@@ -56,23 +56,59 @@ final class MediaPlaybackTests: XCTestCase {
         let toggleCount = await remote.recordedToggleCount()
         XCTAssertEqual(toggleCount, 1)
     }
+
+    func testUnavailablePlaybackStateNeverPostsMediaKey() async {
+        let remote = FakeMediaRemote(state: .unavailable)
+        let service = MediaPlaybackService(remote: remote)
+        let id = UUID()
+
+        await service.beginDictation(id)
+        await service.endDictation(id)
+
+        let toggleCount = await remote.recordedToggleCount()
+        XCTAssertEqual(toggleCount, 0)
+    }
+
+    func testOwnedPauseResumesWhenPlaybackStateBecomesUnavailable() async {
+        let remote = FakeMediaRemote(isPlaying: true)
+        let service = MediaPlaybackService(remote: remote)
+        let id = UUID()
+
+        await service.beginDictation(id)
+        await remote.simulateUnavailable()
+        await service.endDictation(id)
+
+        let toggleCount = await remote.recordedToggleCount()
+        XCTAssertEqual(toggleCount, 2)
+    }
 }
 
 private actor FakeMediaRemote: MediaRemoteControlling {
-    private var isCurrentlyPlaying: Bool
+    private var state: MediaPlaybackState
     private var toggleCount = 0
 
     init(isPlaying: Bool) {
-        isCurrentlyPlaying = isPlaying
+        state = isPlaying ? .playing : .paused
     }
 
-    func isPlaying() -> Bool {
-        isCurrentlyPlaying
+    init(state: MediaPlaybackState) {
+        self.state = state
+    }
+
+    func playbackState() -> MediaPlaybackState {
+        state
     }
 
     func togglePlayPause() -> Bool {
         toggleCount += 1
-        isCurrentlyPlaying.toggle()
+        switch state {
+        case .playing:
+            state = .paused
+        case .paused:
+            state = .playing
+        case .unavailable:
+            state = .playing
+        }
         return true
     }
 
@@ -81,6 +117,10 @@ private actor FakeMediaRemote: MediaRemoteControlling {
     }
 
     func simulatePlayback() {
-        isCurrentlyPlaying = true
+        state = .playing
+    }
+
+    func simulateUnavailable() {
+        state = .unavailable
     }
 }

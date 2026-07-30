@@ -14,11 +14,13 @@ protocol TranscriptionEngine: Sendable {
 protocol CleanupEngine: Sendable {
     func correct(text: String, dictionary: [String]) async throws -> String
     func prewarm() async
+    func abortPendingWork() async
     func shutdown() async
 }
 
 extension CleanupEngine {
     func prewarm() async {}
+    func abortPendingWork() async {}
     func shutdown() async {}
 }
 

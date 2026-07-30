@@ -3,7 +3,13 @@
 import AppKit
 
 @MainActor
-final class PermissionService {
+protocol DictationPermissionChecking: AnyObject {
+    var microphoneGranted: Bool { get }
+    func requestMicrophone() async -> Bool
+}
+
+@MainActor
+final class PermissionService: DictationPermissionChecking {
     var microphoneGranted: Bool {
         AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }

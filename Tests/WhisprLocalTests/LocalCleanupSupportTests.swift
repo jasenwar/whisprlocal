@@ -59,6 +59,14 @@ final class LocalCleanupSupportTests: XCTestCase {
             .seconds(2.5)
         )
         XCTAssertEqual(
+            LocalCleanupRuntimeConfiguration.endToEndDeadline(wordCount: 40),
+            .milliseconds(2_250)
+        )
+        XCTAssertEqual(
+            LocalCleanupRuntimeConfiguration.endToEndDeadline(wordCount: 100),
+            .milliseconds(3_250)
+        )
+        XCTAssertEqual(
             LocalCleanupRuntimeConfiguration.maximumOutputTokens(
                 estimatedInputTokens: 100
             ),
@@ -216,6 +224,40 @@ final class LocalCleanupSupportTests: XCTestCase {
         let counts = await transport.counts
         XCTAssertEqual(counts.recycle, 0)
         XCTAssertEqual(counts.timeoutRecycle, 1)
+    }
+
+    func testBoundedCleanupDeadlineIncludesWarmupAndAbortsPendingWork() async {
+        let engine = SlowCleanupEngine(warmupDelay: .seconds(1))
+        let warmupTask = Task {
+            await engine.prewarm()
+        }
+        let started = ContinuousClock.now
+
+        do {
+            _ = try await BoundedCleanupExecutor.correct(
+                using: engine,
+                warmupTask: warmupTask,
+                text: "hello there",
+                dictionary: [],
+                timeout: .milliseconds(50)
+            )
+            XCTFail("Expected end-to-end cleanup to time out.")
+        } catch WhisprLocalError.cleanupTimedOut {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertLessThan(
+            (ContinuousClock.now - started).timeInterval,
+            0.2
+        )
+        try? await Task.sleep(for: .milliseconds(25))
+        let abortCount = await engine.abortCount
+        let correctCount = await engine.correctCount
+        XCTAssertEqual(abortCount, 1)
+        XCTAssertEqual(correctCount, 0)
+        warmupTask.cancel()
     }
 
     func testLocalCleanupEngineRejectsContextOverflowWithoutStartingHelper() async {
@@ -450,6 +492,31 @@ private actor FakeLocalCleanupTransport: LocalCleanupTransport {
     func advanceGeneration() {
         generation += 1
     }
+}
+
+private actor SlowCleanupEngine: CleanupEngine {
+    private let warmupDelay: Duration
+    private(set) var abortCount = 0
+    private(set) var correctCount = 0
+
+    init(warmupDelay: Duration) {
+        self.warmupDelay = warmupDelay
+    }
+
+    func prewarm() async {
+        try? await Task.sleep(for: warmupDelay)
+    }
+
+    func correct(text: String, dictionary: [String]) -> String {
+        correctCount += 1
+        return text
+    }
+
+    func abortPendingWork() {
+        abortCount += 1
+    }
+
+    func shutdown() {}
 }
 
 private extension XCTestCase {

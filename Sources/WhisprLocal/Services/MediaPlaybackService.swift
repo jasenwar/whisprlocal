@@ -1,14 +1,26 @@
 import Dispatch
 import Foundation
+import OSLog
 @preconcurrency import AppKit
+
+private let mediaPlaybackLogger = Logger(
+    subsystem: "com.jasenguerra.whisprlocal",
+    category: "MediaPlayback"
+)
 
 protocol MediaPlaybackControlling: Sendable {
     func beginDictation(_ id: UUID) async
     func endDictation(_ id: UUID) async
 }
 
+enum MediaPlaybackState: String, Sendable {
+    case playing
+    case paused
+    case unavailable
+}
+
 protocol MediaRemoteControlling: Sendable {
-    func isPlaying() async -> Bool
+    func playbackState() async -> MediaPlaybackState
     func togglePlayPause() async -> Bool
 }
 
@@ -23,11 +35,31 @@ actor MediaPlaybackService: MediaPlaybackControlling {
 
     func beginDictation(_ id: UUID) async {
         activeDictations.insert(id)
-        guard !pausedByWhisprLocal else { return }
-        guard await remote.isPlaying() else { return }
+        guard !pausedByWhisprLocal else {
+            mediaPlaybackLogger.info(
+                "Pause skipped because WhisprLocal already owns the paused state"
+            )
+            return
+        }
+
+        let stateStarted = ContinuousClock.now
+        let state = await remote.playbackState()
+        mediaPlaybackLogger.info(
+            "Playback state before capture=\(state.rawValue, privacy: .public) resolved in \((ContinuousClock.now - stateStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+        )
+        guard state == .playing else {
+            mediaPlaybackLogger.info(
+                "Pause command skipped for playback state=\(state.rawValue, privacy: .public)"
+            )
+            return
+        }
         guard activeDictations.contains(id), !pausedByWhisprLocal else { return }
 
-        if await remote.togglePlayPause() {
+        let posted = await remote.togglePlayPause()
+        mediaPlaybackLogger.info(
+            "Pause command posted success=\(posted, privacy: .public)"
+        )
+        if posted {
             pausedByWhisprLocal = true
         }
     }
@@ -35,9 +67,31 @@ actor MediaPlaybackService: MediaPlaybackControlling {
     func endDictation(_ id: UUID) async {
         activeDictations.remove(id)
         guard activeDictations.isEmpty, pausedByWhisprLocal else { return }
-        if !(await remote.isPlaying()) {
-            _ = await remote.togglePlayPause()
+
+        var state = await remote.playbackState()
+        if state == .unavailable {
+            try? await Task.sleep(for: .milliseconds(50))
+            state = await remote.playbackState()
+            mediaPlaybackLogger.info(
+                "Playback state retry before resume=\(state.rawValue, privacy: .public)"
+            )
         }
+        guard state != .playing else {
+            mediaPlaybackLogger.info(
+                "Resume command skipped for playback state=\(state.rawValue, privacy: .public)"
+            )
+            pausedByWhisprLocal = false
+            return
+        }
+        if state == .unavailable {
+            mediaPlaybackLogger.info(
+                "Posting owned resume despite unavailable playback state"
+            )
+        }
+        let posted = await remote.togglePlayPause()
+        mediaPlaybackLogger.info(
+            "Resume command posted success=\(posted, privacy: .public)"
+        )
         pausedByWhisprLocal = false
     }
 }
@@ -70,18 +124,20 @@ private final class MediaRemoteClient: MediaRemoteControlling, @unchecked Sendab
 
     }
 
-    func isPlaying() async -> Bool {
-        guard let getPlaying else { return false }
+    func playbackState() async -> MediaPlaybackState {
+        guard let getPlaying else { return .unavailable }
 
         return await withCheckedContinuation { continuation in
             let request = PlayingStateRequest(continuation: continuation)
             getPlaying(.global(qos: .userInitiated)) { isPlaying in
-                request.complete(with: isPlaying)
+                request.complete(
+                    with: isPlaying ? .playing : .paused
+                )
             }
             DispatchQueue.global(qos: .utility).asyncAfter(
-                deadline: .now() + .milliseconds(500)
+                deadline: .now() + .milliseconds(75)
             ) {
-                request.complete(with: false)
+                request.complete(with: .unavailable)
             }
         }
     }
@@ -111,13 +167,15 @@ private final class MediaRemoteClient: MediaRemoteControlling, @unchecked Sendab
 
 private final class PlayingStateRequest: @unchecked Sendable {
     private let lock = NSLock()
-    private var continuation: CheckedContinuation<Bool, Never>?
+    private var continuation: CheckedContinuation<MediaPlaybackState, Never>?
 
-    init(continuation: CheckedContinuation<Bool, Never>) {
+    init(
+        continuation: CheckedContinuation<MediaPlaybackState, Never>
+    ) {
         self.continuation = continuation
     }
 
-    func complete(with value: Bool) {
+    func complete(with value: MediaPlaybackState) {
         lock.lock()
         let continuation = continuation
         self.continuation = nil

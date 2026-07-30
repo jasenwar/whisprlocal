@@ -62,14 +62,14 @@ case "$mode" in
     /usr/bin/log stream \
       --style compact \
       --level info \
-      --predicate 'subsystem == "com.jasenguerra.whisprlocal" && (category == "AudioCapture" || category == "Transcription" || category == "Cleanup" || category == "LocalCleanup" || category == "LocalCleanupServer" || category == "Dictation" || category == "SoundEffects")'
+      --predicate 'subsystem == "com.jasenguerra.whisprlocal" && (category == "AudioCapture" || category == "Transcription" || category == "Cleanup" || category == "LocalCleanup" || category == "LocalCleanupServer" || category == "Dictation" || category == "MediaPlayback" || category == "SoundEffects")'
     ;;
   diagnostics)
     /usr/bin/log show \
       --last "${2:-10m}" \
       --style compact \
       --info \
-      --predicate 'subsystem == "com.jasenguerra.whisprlocal" && (category == "AudioCapture" || category == "Transcription" || category == "Cleanup" || category == "LocalCleanup" || category == "LocalCleanupServer" || category == "Dictation" || category == "SoundEffects")'
+      --predicate 'subsystem == "com.jasenguerra.whisprlocal" && (category == "AudioCapture" || category == "Transcription" || category == "Cleanup" || category == "LocalCleanup" || category == "LocalCleanupServer" || category == "Dictation" || category == "MediaPlayback" || category == "SoundEffects")'
     ;;
   test)
     generate_project

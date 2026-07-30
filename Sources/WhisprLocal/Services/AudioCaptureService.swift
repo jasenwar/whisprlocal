@@ -10,7 +10,17 @@ private let audioCaptureLogger = Logger(
 )
 
 @MainActor
-final class AudioCaptureService {
+protocol AudioCapturing: AnyObject {
+    var isRecording: Bool { get }
+    var selectedInputDeviceName: String? { get }
+
+    func start(inputMode: AudioInputMode) throws
+    func stop() -> [Float]
+    func cancel()
+}
+
+@MainActor
+final class AudioCaptureService: AudioCapturing {
     private var engine: AVAudioEngine?
     private let accumulator = AudioSampleAccumulator()
     private(set) var isRecording = false

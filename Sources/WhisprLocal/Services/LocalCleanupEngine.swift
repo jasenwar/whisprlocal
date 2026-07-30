@@ -25,6 +25,7 @@ actor LocalCleanupEngine: CleanupEngine {
     func prewarm() async {
         idleShutdownTask?.cancel()
         defer { scheduleIdleShutdown() }
+        let started = ContinuousClock.now
         do {
             let generation = try await transport.ensureReady()
             if warmedGeneration != generation {
@@ -35,14 +36,22 @@ actor LocalCleanupEngine: CleanupEngine {
                     ),
                     maximumOutputTokens: 24
                 )
-                _ = try await DetachedDeadline.run(
+                let response = try await DetachedDeadline.run(
                     timeout: .seconds(2.5)
                 ) { [transport] in
                     try await transport.complete(warmupRequest)
                 }
                 warmedGeneration = generation
+                localCleanupLogger.info(
+                    "Prompt cache seeded generation=\(generation, privacy: .public) cachedTokens=\(response.cachedPromptTokens ?? -1, privacy: .public) in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+                )
+            } else {
+                localCleanupLogger.info(
+                    "Prewarm reused generation=\(generation, privacy: .public) in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+                )
             }
         } catch is CancellationError {
+            localCleanupLogger.info("Prewarm was cancelled")
             return
         } catch {
             localCleanupLogger.error(
@@ -52,6 +61,7 @@ actor LocalCleanupEngine: CleanupEngine {
     }
 
     func correct(text: String, dictionary: [String]) async throws -> String {
+        try Task.checkCancellation()
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw LocalCleanupValidationError.emptyOutput
@@ -80,12 +90,18 @@ actor LocalCleanupEngine: CleanupEngine {
             userPrompt: userPrompt,
             maximumOutputTokens: maximumOutputTokens
         )
+        let requestDeadline = deadline(wordCount)
+        let started = ContinuousClock.now
+        localCleanupLogger.info(
+            "Request entered cleanup actor words=\(wordCount, privacy: .public) requestDeadline=\(requestDeadline.timeInterval, format: .fixed(precision: 3), privacy: .public)s maximumOutputTokens=\(maximumOutputTokens, privacy: .public)"
+        )
 
         do {
             let (generation, response) = try await DetachedDeadline.run(
-                timeout: deadline(wordCount)
+                timeout: requestDeadline
             ) { [transport] in
                 let generation = try await transport.ensureReady()
+                try Task.checkCancellation()
                 let response = try await transport.complete(request)
                 return (generation, response)
             }
@@ -96,6 +112,9 @@ actor LocalCleanupEngine: CleanupEngine {
             let restored = try protected.restore(validated)
             warmedGeneration = generation
             scheduleIdleShutdown()
+            localCleanupLogger.info(
+                "Request validated generation=\(generation, privacy: .public) cachedTokens=\(response.cachedPromptTokens ?? -1, privacy: .public) in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+            )
             return DeterministicTranscriptCleanup.finalize(restored)
         } catch WhisprLocalError.cleanupTimedOut {
             warmedGeneration = nil
@@ -116,6 +135,16 @@ actor LocalCleanupEngine: CleanupEngine {
             )
             throw error
         }
+    }
+
+    func abortPendingWork() async {
+        idleShutdownTask?.cancel()
+        idleShutdownTask = nil
+        warmedGeneration = nil
+        await transport.recycleAfterTimeout()
+        localCleanupLogger.error(
+            "Pending cleanup work aborted and helper recycled"
+        )
     }
 
     func shutdown() async {
@@ -161,5 +190,36 @@ actor LocalCleanupEngine: CleanupEngine {
             throw LocalCleanupValidationError.unexpectedFormatting
         }
         return cleaned
+    }
+}
+
+enum BoundedCleanupExecutor {
+    static func correct(
+        using engine: any CleanupEngine,
+        warmupTask: Task<Void, Never>?,
+        text: String,
+        dictionary: [String],
+        timeout: Duration
+    ) async throws -> String {
+        do {
+            return try await DetachedDeadline.run(timeout: timeout) {
+                await warmupTask?.value
+                try Task.checkCancellation()
+                return try await engine.correct(
+                    text: text,
+                    dictionary: dictionary
+                )
+            }
+        } catch WhisprLocalError.cleanupTimedOut {
+            Task.detached(priority: .userInitiated) {
+                await engine.abortPendingWork()
+            }
+            throw WhisprLocalError.cleanupTimedOut
+        } catch is CancellationError {
+            Task.detached(priority: .userInitiated) {
+                await engine.abortPendingWork()
+            }
+            throw CancellationError()
+        }
     }
 }
