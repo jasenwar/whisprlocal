@@ -33,7 +33,7 @@ struct GeneralSettingsView: View {
                 )
                 HStack {
                     Toggle(
-                        "Play OpenWhispr start and stop sounds",
+                        "Play optional start and stop sounds",
                         isOn: $preferences.sounds
                     )
                     Spacer()
@@ -41,6 +41,9 @@ struct GeneralSettingsView: View {
                         environment.playReadySoundPreview()
                     }
                 }
+                Text("The floating overlay is the recording indicator. Sounds are off by default and do not control when recording begins.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle("Paste automatically", isOn: $preferences.autoPaste)
                 Toggle(
                     "Keep last dictation on clipboard",

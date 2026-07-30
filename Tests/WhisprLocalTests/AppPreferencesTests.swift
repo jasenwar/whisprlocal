@@ -57,6 +57,19 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertFalse(reloaded.keepLastDictationOnClipboard)
     }
 
+    func testDictationSoundsDefaultOffAndPersist() {
+        let suiteName = "WhisprLocalTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let preferences = AppPreferences(defaults: defaults)
+        XCTAssertFalse(preferences.sounds)
+
+        preferences.sounds = true
+        let reloaded = AppPreferences(defaults: defaults)
+        XCTAssertTrue(reloaded.sounds)
+    }
+
     func testAudioInputDefaultsToFastStartAndPersistsSystemDefault() {
         let suiteName = "WhisprLocalTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suiteName)!

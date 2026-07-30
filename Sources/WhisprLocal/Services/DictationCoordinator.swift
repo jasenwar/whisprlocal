@@ -78,7 +78,7 @@ final class DictationCoordinator {
         if permissions.microphoneGranted {
             guard startCapture(for: token) else { return }
             processingTask = Task { [weak self] in
-                await self?.prewarmEngines()
+                await self?.prewarmTranscriber()
             }
             return
         }
@@ -93,7 +93,7 @@ final class DictationCoordinator {
                 return
             }
             guard startCapture(for: token) else { return }
-            await prewarmEngines()
+            await prewarmTranscriber()
         }
     }
 
@@ -132,10 +132,14 @@ final class DictationCoordinator {
         let started = ContinuousClock.now
         do {
             let hotwords = dictionaryStore.terms + snippetStore.snippets.map(\.trigger)
+            let transcriptionStarted = ContinuousClock.now
             let transcript = try await transcriptionEngine.transcribe(
                 samples: samples,
                 sampleRate: 16_000,
                 hotwords: hotwords
+            )
+            dictationLogger.info(
+                "Transcription stage completed in \((ContinuousClock.now - transcriptionStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
             )
             try Task.checkCancellation()
             lastRawText = transcript.text
@@ -145,9 +149,13 @@ final class DictationCoordinator {
             var cleanupIdentifier = "raw fallback"
             if preferences.cleanupEnabled {
                 do {
+                    let cleanupStarted = ContinuousClock.now
                     corrected = try await cleanupEngine.correct(
                         text: transcript.text,
                         dictionary: dictionaryStore.terms
+                    )
+                    dictationLogger.info(
+                        "Cleanup stage completed in \((ContinuousClock.now - cleanupStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
                     )
                     cleanupIdentifier = "Apple Foundation Models"
                 } catch {
@@ -160,18 +168,20 @@ final class DictationCoordinator {
             try Task.checkCancellation()
             corrected = SnippetExpander.expand(corrected, snippets: snippetStore.snippets)
             lastCorrectedText = corrected
+            let pasteText = PasteTextFormatter.withTrailingSpace(corrected)
             let latency = (ContinuousClock.now - started).timeInterval
             var status = "completed"
 
             if preferences.autoPaste {
                 transition(to: .pasting)
-                if let targetApplication, !targetApplication.isTerminated {
-                    targetApplication.activate()
-                    try? await Task.sleep(for: .milliseconds(80))
-                }
+                await activateTargetIfNeeded()
+                let pasteStarted = ContinuousClock.now
                 try await pasteService.paste(
-                    corrected,
+                    pasteText,
                     restoringClipboard: !preferences.keepLastDictationOnClipboard
+                )
+                dictationLogger.info(
+                    "Paste stage completed in \((ContinuousClock.now - pasteStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
                 )
                 transition(to: .succeeded)
             } else {
@@ -295,10 +305,28 @@ final class DictationCoordinator {
         }
     }
 
-    private func prewarmEngines() async {
-        async let transcriberWarmup: Void = transcriptionEngine.prewarm()
-        async let cleanupWarmup: Void = cleanupEngine.prewarm()
-        _ = await (transcriberWarmup, cleanupWarmup)
+    private func prewarmTranscriber() async {
+        await transcriptionEngine.prewarm()
+    }
+
+    private func activateTargetIfNeeded() async {
+        guard let targetApplication, !targetApplication.isTerminated else {
+            return
+        }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier
+                != targetApplication.processIdentifier else {
+            dictationLogger.info(
+                "Target application already has focus; pasting immediately"
+            )
+            return
+        }
+
+        let activationStarted = ContinuousClock.now
+        targetApplication.activate()
+        try? await Task.sleep(for: .milliseconds(40))
+        dictationLogger.info(
+            "Target application activation completed in \((ContinuousClock.now - activationStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+        )
     }
 
     private func beginMediaPause(for token: UUID) {

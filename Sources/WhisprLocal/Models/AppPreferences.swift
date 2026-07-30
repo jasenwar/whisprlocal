@@ -29,7 +29,9 @@ final class AppPreferences {
     private enum Key {
         static let autoPaste = "autoPaste"
         static let keepLastDictationOnClipboard = "keepLastDictationOnClipboard"
-        static let sounds = "sounds"
+        // Use a new key so diagnostic builds that previously defaulted sounds
+        // on migrate to the new silent-by-default behavior.
+        static let sounds = "dictationSoundsV2"
         static let pauseMediaDuringDictation = "pauseMediaDuringDictation"
         static let cleanupEnabled = "cleanupEnabled"
         static let showMenuBarIcon = "showMenuBarIcon"
@@ -91,7 +93,7 @@ final class AppPreferences {
         defaults.register(defaults: [
             Key.autoPaste: true,
             Key.keepLastDictationOnClipboard: true,
-            Key.sounds: true,
+            Key.sounds: false,
             Key.pauseMediaDuringDictation: true,
             Key.cleanupEnabled: true,
             Key.showMenuBarIcon: false,

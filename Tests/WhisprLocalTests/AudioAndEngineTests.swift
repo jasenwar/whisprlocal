@@ -78,9 +78,9 @@ final class AudioAndEngineTests: XCTestCase {
     }
 
     @MainActor
-    func testOpenWhisprCueEngineStartsAndSchedulesStartSound() throws {
+    func testOpenWhisprCueEngineStartsOnlyWhenSoundIsPlayed() throws {
         let player = try XCTUnwrap(SoundEffectPlayer())
-        XCTAssertTrue(player.isReady)
+        XCTAssertFalse(player.isReady)
 
         player.playStartCue()
 

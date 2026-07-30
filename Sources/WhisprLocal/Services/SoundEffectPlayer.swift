@@ -48,7 +48,6 @@ final class SoundEffectPlayer {
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: format)
         engine.prepare()
-        startEngineIfNeeded()
     }
 
     func playStartCue() {

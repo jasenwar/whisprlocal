@@ -13,7 +13,6 @@ protocol TranscriptionEngine: Sendable {
 
 protocol CleanupEngine: Sendable {
     func correct(text: String, dictionary: [String]) async throws -> String
-    func prewarm() async
 }
 
 enum WhisprLocalError: LocalizedError {

@@ -46,4 +46,16 @@ final class TextProcessingTests: XCTestCase {
             "▁Ja sen ▁G u er ra"
         )
     }
+
+    func testPasteTextEndsWithExactlyOneExistingOrAddedWhitespace() {
+        XCTAssertEqual(
+            PasteTextFormatter.withTrailingSpace("Dictation complete."),
+            "Dictation complete. "
+        )
+        XCTAssertEqual(
+            PasteTextFormatter.withTrailingSpace("Already spaced "),
+            "Already spaced "
+        )
+        XCTAssertEqual(PasteTextFormatter.withTrailingSpace(""), "")
+    }
 }
