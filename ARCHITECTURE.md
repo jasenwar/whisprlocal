@@ -12,8 +12,10 @@ truth; the generated Xcode project is intentionally not committed.
 3. `ParakeetTranscriptionEngine` calls sherpa-onnx v1.13.4 directly. Dictionary
    terms and snippet triggers are SentencePiece-encoded and passed through the
    per-stream hotword API with modified beam search and score 1.5.
-4. `FoundationCleanupEngine` creates a fresh guided-output
-   `LanguageModelSession` for conservative English cleanup.
+4. `LocalCleanupEngine` protects fragile values, then sends a deterministic
+   conservative-cleanup request to the pinned Qwen2.5 3B model.
+   `LlamaServerController` owns one bundled, signed `llama-server` helper on a
+   random loopback port with an ephemeral API key and strict request deadline.
 5. `SnippetExpander` performs Unicode-aware, whole-phrase, longest-first
    expansion.
 6. `SystemPasteService` snapshots every pasteboard item/type, posts Command-V,
@@ -25,7 +27,8 @@ truth; the generated Xcode project is intentionally not committed.
 `idle → listening → transcribing → correcting → pasting → succeeded → idle`
 
 Cancellation and failure transitions are explicit. Cleanup failure never loses
-the transcript: raw Parakeet text is the fallback.
+the transcript: raw Parakeet text is the fallback. A timeout terminates the
+exact owned helper process; the next dictation starts a clean instance.
 
 ## Process lifecycle
 
@@ -48,14 +51,17 @@ the transcript: raw Parakeet text is the fallback.
 
 ## Network boundary
 
-The only application network call is in `ModelManager.download`: an explicit
-user-initiated download of the official Parakeet archive. The archive is
-SHA-256 verified before extraction. Normal dictation, cleanup, persistence, and
-paste have no network path.
+The only external application network calls are explicit user-initiated model
+downloads: the official Parakeet archive and the pinned Qwen2.5 GGUF file. Both
+are SHA-256 verified before installation. Normal dictation, cleanup,
+persistence, and paste have no external network path. Cleanup HTTP stays on
+`127.0.0.1`, bypasses system proxies, and the helper runs with offline mode and
+no web UI.
 
 ## Dependency reproducibility
 
 - sherpa-onnx macOS XCFramework: v1.13.4, pinned URL and checksum
 - ONNX Runtime package: pinned Git revision in both the local package manifest
   and `Package.resolved`
-- Apple Foundation Models: provided by macOS and not bundled
+- llama.cpp b10180 (`11b068d06`): pinned release archive and SHA-256
+- Qwen2.5 3B Instruct Q4_K_M: pinned revision, byte count, and SHA-256

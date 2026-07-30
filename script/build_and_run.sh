@@ -30,6 +30,7 @@ case "$mode" in
     build_app
     ;;
   release)
+    "$repo_root/script/prepare_llama_runtime.sh"
     generate_project
     xcodebuild \
       -project "$repo_root/WhisprLocal.xcodeproj" \
@@ -61,14 +62,14 @@ case "$mode" in
     /usr/bin/log stream \
       --style compact \
       --level info \
-      --predicate 'subsystem == "com.jasenguerra.whisprlocal" && (category == "AudioCapture" || category == "Transcription" || category == "Cleanup" || category == "Dictation" || category == "SoundEffects")'
+      --predicate 'subsystem == "com.jasenguerra.whisprlocal" && (category == "AudioCapture" || category == "Transcription" || category == "Cleanup" || category == "LocalCleanup" || category == "LocalCleanupServer" || category == "Dictation" || category == "SoundEffects")'
     ;;
   diagnostics)
     /usr/bin/log show \
       --last "${2:-10m}" \
       --style compact \
       --info \
-      --predicate 'subsystem == "com.jasenguerra.whisprlocal" && (category == "AudioCapture" || category == "Transcription" || category == "Cleanup" || category == "Dictation" || category == "SoundEffects")'
+      --predicate 'subsystem == "com.jasenguerra.whisprlocal" && (category == "AudioCapture" || category == "Transcription" || category == "Cleanup" || category == "LocalCleanup" || category == "LocalCleanupServer" || category == "Dictation" || category == "SoundEffects")'
     ;;
   test)
     generate_project
@@ -84,6 +85,11 @@ case "$mode" in
     app="$derived_data/Build/Products/Debug/WhisprLocal.app"
     codesign --verify --deep --strict --verbose=2 "$app"
     codesign -d --entitlements - "$app"
+    runtime="$app/Contents/Resources/LocalCleanupRuntime"
+    if [[ -x "$runtime/llama-server" ]]; then
+      codesign --verify --strict --verbose=2 "$runtime/llama-server"
+      "$runtime/llama-server" --version
+    fi
     /usr/libexec/PlistBuddy -c "Print :LSUIElement" "$app/Contents/Info.plist"
     ;;
   *)

@@ -11,19 +11,24 @@ final class AppEnvironment {
     let preferences = AppPreferences()
     let permissions = PermissionService()
     let modelManager = ModelManager()
+    let cleanupModelManager = LocalCleanupModelManager()
     let launchAtLogin = LaunchAtLoginService()
     let historyStore: HistoryStore
     let dictionaryStore: DictionaryStore
     let snippetStore: SnippetStore
     let coordinator: DictationCoordinator
 
+    private let cleanupEngine: LocalCleanupEngine
     private let monitor = GlobalFnMonitor()
     private let overlay = OverlayPanelController()
     private let statusItem = StatusItemController()
     private let soundPlayer = SoundEffectPlayer()
     private(set) var modelStatus: ModelStatus = .missing
+    private(set) var cleanupModelStatus: LocalCleanupModelStatus = .missing
     private(set) var setupProgress: Double?
     private(set) var setupMessage: String?
+    private(set) var cleanupSetupProgress: Double?
+    private(set) var cleanupSetupMessage: String?
     private(set) var microphoneGranted = false
     private(set) var accessibilityGranted = false
 
@@ -35,10 +40,21 @@ final class AppEnvironment {
         dictionaryStore = dictionary
         snippetStore = snippets
 
+        let runtimeURL = Bundle.main.resourceURL?
+            .appending(path: "LocalCleanupRuntime", directoryHint: .isDirectory)
+            .appending(path: "llama-server")
+            ?? URL(fileURLWithPath: "/missing/llama-server")
+        let localCleanup = LocalCleanupEngine(
+            transport: LlamaServerController(
+                executableURL: runtimeURL,
+                modelURL: cleanupModelManager.modelURL
+            )
+        )
+        cleanupEngine = localCleanup
         coordinator = DictationCoordinator(
             audio: AudioCaptureService(),
             transcriptionEngine: ParakeetTranscriptionEngine(modelManager: modelManager),
-            cleanupEngine: FoundationCleanupEngine(),
+            cleanupEngine: localCleanup,
             pasteService: SystemPasteService(),
             database: database,
             historyStore: history,
@@ -76,6 +92,12 @@ final class AppEnvironment {
                 setupMessage = error.localizedDescription
             }
             modelStatus = await modelManager.status()
+            do {
+                _ = try await cleanupModelManager.prepareFromExistingCache()
+            } catch {
+                cleanupSetupMessage = error.localizedDescription
+            }
+            cleanupModelStatus = await cleanupModelManager.status()
             await reloadStores()
         }
     }
@@ -133,4 +155,28 @@ final class AppEnvironment {
         }
     }
 
+    func downloadCleanupModel() {
+        guard cleanupSetupProgress == nil else { return }
+        cleanupSetupProgress = 0
+        cleanupSetupMessage = "Downloading and verifying the 2.1 GB local cleanup model…"
+        Task {
+            do {
+                try await cleanupModelManager.download { progress in
+                    Task { @MainActor [weak self] in
+                        self?.cleanupSetupProgress = progress
+                    }
+                }
+                cleanupModelStatus = await cleanupModelManager.status()
+                cleanupSetupMessage = "Qwen2.5 3B local cleanup is ready."
+            } catch {
+                cleanupSetupMessage = error.localizedDescription
+            }
+            cleanupSetupProgress = nil
+        }
+    }
+
+    func shutdown() async {
+        monitor.stop()
+        await cleanupEngine.shutdown()
+    }
 }

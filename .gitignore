@@ -7,3 +7,7 @@ WhisprLocal.xcodeproj/
 xcuserdata/
 *.xcuserstate
 *.log
+.cleanup-benchmarks/
+.runtime-cache/
+Vendor/LocalCleanupRuntime/*
+!Vendor/LocalCleanupRuntime/.gitkeep

@@ -13,6 +13,13 @@ protocol TranscriptionEngine: Sendable {
 
 protocol CleanupEngine: Sendable {
     func correct(text: String, dictionary: [String]) async throws -> String
+    func prewarm() async
+    func shutdown() async
+}
+
+extension CleanupEngine {
+    func prewarm() async {}
+    func shutdown() async {}
 }
 
 enum WhisprLocalError: LocalizedError {
@@ -23,8 +30,9 @@ enum WhisprLocalError: LocalizedError {
     case modelMissing
     case modelInvalid(String)
     case transcriptionFailed
-    case cleanupUnavailable
     case cleanupTimedOut
+    case cleanupModelMissing
+    case cleanupRuntimeUnavailable
     case pasteFailed
 
     var errorDescription: String? {
@@ -36,8 +44,9 @@ enum WhisprLocalError: LocalizedError {
         case .modelMissing: "Parakeet model is not installed."
         case .modelInvalid(let reason): "Parakeet model is invalid: \(reason)"
         case .transcriptionFailed: "Local transcription failed."
-        case .cleanupUnavailable: "Apple Intelligence cleanup is unavailable."
-        case .cleanupTimedOut: "Apple Intelligence cleanup timed out."
+        case .cleanupTimedOut: "Local cleanup timed out."
+        case .cleanupModelMissing: "The local cleanup model is not installed."
+        case .cleanupRuntimeUnavailable: "The local cleanup runtime could not start."
         case .pasteFailed: "Could not paste into the target application."
         }
     }

@@ -2,8 +2,8 @@
 
 WhisprLocal is a private, fully local macOS dictation utility. Hold Globe/Fn,
 speak, and release to transcribe with Parakeet Unified English, conservatively
-clean the text with Apple's on-device Foundation Model, and paste it into the
-application that was already focused.
+clean the text with a pinned on-device Qwen2.5 3B model, and paste it into the
+application that was already focused. Cleanup can be disabled independently.
 
 The application has no account system, billing, cloud API, analytics, updater,
 or Docker service. Its Dock icon appears only while Settings is open, and an
@@ -24,7 +24,6 @@ cancelled. Media that was already paused is left paused.
 
 - Apple-silicon Mac running macOS 26 or newer
 - Xcode 26 or newer
-- Apple Intelligence enabled for optional grammar cleanup
 - Microphone and Accessibility permissions
 
 ## Build
@@ -39,14 +38,16 @@ cancelled. Media that was already paused is left paused.
 
 `release` produces a signed personal build at `dist/WhisprLocal.app`.
 
-The first run clones an existing OpenWhispr Parakeet cache when available.
-Otherwise, Model Setup in Settings downloads and verifies the official model
-archive.
+The first run clones existing Parakeet and local-cleanup model caches when
+available. Otherwise, Model Setup in Settings downloads and verifies the
+official model files. The cleanup model is a separate 2.1 GB download.
 
 ## Privacy
 
 After explicit model setup, dictation and cleanup run offline. The local
-database is stored at:
+cleanup helper listens only on a random loopback port, requires an ephemeral
+API key, disables its web UI and network model access, and is terminated when
+WhisprLocal quits. The local database is stored at:
 
 `~/Library/Application Support/WhisprLocal/whisprlocal.sqlite`
 

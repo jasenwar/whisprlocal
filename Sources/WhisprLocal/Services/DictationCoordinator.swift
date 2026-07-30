@@ -157,7 +157,7 @@ final class DictationCoordinator {
                     dictationLogger.info(
                         "Cleanup stage completed in \((ContinuousClock.now - cleanupStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
                     )
-                    cleanupIdentifier = "Apple Foundation Models"
+                    cleanupIdentifier = LocalCleanupModelManifest.production.displayName
                 } catch {
                     showCleanupFallbackWarning(error)
                 }
@@ -310,7 +310,9 @@ final class DictationCoordinator {
     }
 
     private func prewarmTranscriber() async {
-        await transcriptionEngine.prewarm()
+        async let transcriptionWarmup: Void = transcriptionEngine.prewarm()
+        async let cleanupWarmup: Void = cleanupEngine.prewarm()
+        _ = await (transcriptionWarmup, cleanupWarmup)
     }
 
     private func activateTargetIfNeeded() async {

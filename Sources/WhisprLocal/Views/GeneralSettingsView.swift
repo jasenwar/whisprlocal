@@ -57,7 +57,17 @@ struct GeneralSettingsView: View {
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                Toggle("Conservative Apple Intelligence cleanup", isOn: $preferences.cleanupEnabled)
+                Toggle(
+                    "Conservative local grammar cleanup",
+                    isOn: $preferences.cleanupEnabled
+                )
+                Text(
+                    preferences.cleanupEnabled
+                        ? "Uses the on-device Qwen2.5 model. If cleanup misses its deadline, the raw transcript is pasted immediately."
+                        : "Cleanup is disabled. WhisprLocal will paste the raw Parakeet transcript."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("Permissions") {
@@ -120,6 +130,42 @@ struct GeneralSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            }
+
+            Section("Cleanup model") {
+                HStack {
+                    Label(
+                        environment.cleanupModelStatus.isReady
+                            ? "Qwen2.5 3B local cleanup is ready"
+                            : "Local cleanup model is missing",
+                        systemImage: environment.cleanupModelStatus.isReady
+                            ? "checkmark.circle.fill"
+                            : "arrow.down.circle"
+                    )
+                    .foregroundStyle(
+                        environment.cleanupModelStatus.isReady ? .green : .primary
+                    )
+                    Spacer()
+                    if !environment.cleanupModelStatus.isReady {
+                        Button("Download and verify") {
+                            environment.downloadCleanupModel()
+                        }
+                        .disabled(environment.cleanupSetupProgress != nil)
+                    }
+                }
+                if let progress = environment.cleanupSetupProgress {
+                    ProgressView(value: progress)
+                }
+                if let message = environment.cleanupSetupMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text(
+                    "Runs entirely on this Mac through the bundled llama.cpp helper. Model download: 2.1 GB."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("Startup") {

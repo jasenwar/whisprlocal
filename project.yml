@@ -22,6 +22,9 @@ targets:
     platform: macOS
     sources:
       - path: Sources/WhisprLocal
+      - path: Vendor/LocalCleanupRuntime
+        buildPhase: resources
+        type: folder
     dependencies:
       - package: SherpaRuntime
         product: SherpaRuntime
@@ -53,6 +56,19 @@ targets:
             mv "$framework/Resources" "$TARGET_TEMP_DIR/onnxruntime-source-resources-$RANDOM"
             ln -s Versions/Current/Resources "$framework/Resources"
           fi
+    postBuildScripts:
+      - name: Sign local cleanup runtime
+        basedOnDependencyAnalysis: false
+        script: |
+          runtime="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/LocalCleanupRuntime"
+          if [[ ! -x "$runtime/llama-server" ]]; then
+            exit 0
+          fi
+          identity="${EXPANDED_CODE_SIGN_IDENTITY:--}"
+          for library in "$runtime"/*.dylib; do
+            /usr/bin/codesign --force --sign "$identity" --options runtime --timestamp=none "$library"
+          done
+          /usr/bin/codesign --force --sign "$identity" --options runtime --timestamp=none "$runtime/llama-server"
   WhisprLocalTests:
     type: bundle.unit-test
     platform: macOS
