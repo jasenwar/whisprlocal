@@ -2,10 +2,30 @@
 import CoreServices
 
 @MainActor
+protocol LoginRelaunchControlling: AnyObject {
+    func disableRelaunchOnLogin()
+}
+
+extension NSApplication: LoginRelaunchControlling {}
+
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var launchedAsLoginItem = false
+    private let relaunchController: any LoginRelaunchControlling
+
+    override init() {
+        relaunchController = NSApplication.shared
+        super.init()
+    }
+
+    init(relaunchController: any LoginRelaunchControlling) {
+        self.relaunchController = relaunchController
+        super.init()
+    }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // SMAppService owns login startup; suppress the separate session-restore reopen.
+        relaunchController.disableRelaunchOnLogin()
         launchedAsLoginItem = Self.isLoginItemLaunch(
             NSAppleEventManager.shared().currentAppleEvent
         )

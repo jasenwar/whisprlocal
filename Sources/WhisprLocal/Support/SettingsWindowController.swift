@@ -16,6 +16,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         )
         window.title = "WhisprLocal Settings"
         window.isReleasedWhenClosed = false
+        window.isRestorable = false
         window.center()
         window.contentView = NSHostingView(
             rootView: SettingsRootView(environment: AppEnvironment.shared)

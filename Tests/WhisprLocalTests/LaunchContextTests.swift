@@ -5,6 +5,17 @@ import XCTest
 
 @MainActor
 final class LaunchContextTests: XCTestCase {
+    func testAppDisablesSystemSessionRelaunch() {
+        let relaunchController = LoginRelaunchControllerSpy()
+        let delegate = AppDelegate(relaunchController: relaunchController)
+
+        delegate.applicationWillFinishLaunching(
+            Notification(name: NSApplication.willFinishLaunchingNotification)
+        )
+
+        XCTAssertTrue(relaunchController.didDisableRelaunch)
+    }
+
     func testLoginItemOpenEventIsRecognized() {
         let event = openApplicationEvent()
         event.setParam(
@@ -20,6 +31,12 @@ final class LaunchContextTests: XCTestCase {
         XCTAssertFalse(AppDelegate.isLoginItemLaunch(nil))
     }
 
+    func testSettingsWindowDoesNotParticipateInStateRestoration() {
+        XCTAssertFalse(
+            SettingsWindowController.shared.window?.isRestorable ?? true
+        )
+    }
+
     private func openApplicationEvent() -> NSAppleEventDescriptor {
         NSAppleEventDescriptor(
             eventClass: kCoreEventClass,
@@ -28,5 +45,14 @@ final class LaunchContextTests: XCTestCase {
             returnID: AEReturnID(kAutoGenerateReturnID),
             transactionID: AETransactionID(kAnyTransactionID)
         )
+    }
+}
+
+@MainActor
+private final class LoginRelaunchControllerSpy: LoginRelaunchControlling {
+    private(set) var didDisableRelaunch = false
+
+    func disableRelaunchOnLogin() {
+        didDisableRelaunch = true
     }
 }
