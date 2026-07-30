@@ -126,8 +126,11 @@ final class SoundEffectPlayer {
 
     private func play(buffer: AVAudioPCMBuffer, name: String) {
         let started = ContinuousClock.now
-        guard startEngineIfNeeded() else { return }
         player.stop()
+        engine.stop()
+        engine.reset()
+        engine.prepare()
+        guard startEngineIfNeeded() else { return }
         player.scheduleBuffer(buffer, at: nil)
         player.play()
         let acceptanceDelay = (

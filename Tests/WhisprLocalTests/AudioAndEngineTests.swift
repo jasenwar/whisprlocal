@@ -84,7 +84,22 @@ final class AudioAndEngineTests: XCTestCase {
 
         player.playStartCue()
 
+        XCTAssertTrue(player.isReady)
         XCTAssertTrue(player.isPlaying)
+    }
+
+    @MainActor
+    func testOpenWhisprStartCueSurvivesFastInputStartup() async throws {
+        let cuePlayer = try XCTUnwrap(SoundEffectPlayer())
+        let capture = AudioCaptureService()
+        try capture.start(inputMode: .fastStart)
+        defer { capture.cancel() }
+
+        try await Task.sleep(for: .milliseconds(120))
+        cuePlayer.playStartCue()
+
+        XCTAssertTrue(cuePlayer.isReady)
+        XCTAssertTrue(cuePlayer.isPlaying)
     }
 
     func testAudioTapHandlerAcceptsBufferOffMainActor() async throws {

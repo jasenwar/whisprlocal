@@ -279,13 +279,12 @@ final class DictationCoordinator {
         }
         readyCueTask?.cancel()
 
-        if preferences.audioInputMode == .fastStart {
-            soundPlayer?.playStartCue()
-            return
-        }
-
+        let routeSettleDelay: Duration =
+            preferences.audioInputMode == .fastStart
+                ? .milliseconds(120)
+                : .milliseconds(220)
         readyCueTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
+            try? await Task.sleep(for: routeSettleDelay)
             guard let self,
                   !Task.isCancelled,
                   token == recordingToken,
