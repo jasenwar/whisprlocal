@@ -25,4 +25,18 @@ final class FoundationCleanupIntegrationTests: XCTestCase {
         XCTAssertTrue(normalized.contains("instructions"))
         XCTAssertLessThan(corrected.count, raw.count * 3)
     }
+
+    func testCleanupAppliesExplicitSelfCorrectionAndSpokenPunctuation() async throws {
+        guard case .available = SystemLanguageModel.default.availability else {
+            throw XCTSkip("Apple Foundation Models is unavailable.")
+        }
+        let corrected = try await FoundationCleanupEngine().correct(
+            text: "Send it Thursday no wait Friday period",
+            dictionary: []
+        )
+        let normalized = corrected.lowercased()
+        XCTAssertTrue(normalized.contains("friday"))
+        XCTAssertFalse(normalized.contains("thursday"))
+        XCTAssertFalse(normalized.contains("period"))
+    }
 }
