@@ -78,7 +78,7 @@ final class DictationCoordinator {
         if permissions.microphoneGranted {
             guard startCapture(for: token) else { return }
             processingTask = Task { [weak self] in
-                await self?.prewarmTranscriber()
+                await self?.prewarmEngines()
             }
             return
         }
@@ -93,7 +93,7 @@ final class DictationCoordinator {
                 return
             }
             guard startCapture(for: token) else { return }
-            await prewarmTranscriber()
+            await prewarmEngines()
         }
     }
 
@@ -122,6 +122,9 @@ final class DictationCoordinator {
         processingTask?.cancel()
         readyCueTask?.cancel()
         audio.cancel()
+        Task {
+            await cleanupEngine.discardPreparedSession()
+        }
         endMediaPause(for: recordingToken)
         transition(to: .cancelled)
         playStopCue()
@@ -162,6 +165,7 @@ final class DictationCoordinator {
                     showCleanupFallbackWarning(error)
                 }
             } else {
+                await cleanupEngine.discardPreparedSession()
                 cleanupIdentifier = "disabled"
             }
 
@@ -222,6 +226,9 @@ final class DictationCoordinator {
         )
         audio.cancel()
         readyCueTask?.cancel()
+        Task {
+            await cleanupEngine.discardPreparedSession()
+        }
         endMediaPause(for: recordingToken)
         transition(to: .failed(error.localizedDescription))
         settleToIdle()
@@ -305,8 +312,17 @@ final class DictationCoordinator {
         }
     }
 
-    private func prewarmTranscriber() async {
-        await transcriptionEngine.prewarm()
+    private func prewarmEngines() async {
+        async let transcriberWarmup: Void = transcriptionEngine.prewarm()
+        if preferences.cleanupEnabled {
+            async let cleanupWarmup: Void = cleanupEngine.prewarm(
+                dictionary: dictionaryStore.terms
+            )
+            _ = await (transcriberWarmup, cleanupWarmup)
+        } else {
+            await transcriberWarmup
+            await cleanupEngine.discardPreparedSession()
+        }
     }
 
     private func activateTargetIfNeeded() async {

@@ -70,6 +70,19 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertTrue(reloaded.sounds)
     }
 
+    func testCleanupDefaultsOnAndCanBeDisabled() {
+        let suiteName = "WhisprLocalTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let preferences = AppPreferences(defaults: defaults)
+        XCTAssertTrue(preferences.cleanupEnabled)
+
+        preferences.cleanupEnabled = false
+        let reloaded = AppPreferences(defaults: defaults)
+        XCTAssertFalse(reloaded.cleanupEnabled)
+    }
+
     func testAudioInputDefaultsToFastStartAndPersistsSystemDefault() {
         let suiteName = "WhisprLocalTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suiteName)!
