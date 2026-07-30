@@ -33,6 +33,7 @@ final class AppPreferences {
         // on migrate to the new silent-by-default behavior.
         static let sounds = "dictationSoundsV2"
         static let pauseMediaDuringDictation = "pauseMediaDuringDictation"
+        static let microphoneMode = "microphoneMode"
         static let cleanupEnabled = "cleanupEnabled"
         static let showMenuBarIcon = "showMenuBarIcon"
         static let overlayPosition = "overlayPosition"
@@ -67,6 +68,15 @@ final class AppPreferences {
         }
     }
 
+    var microphoneMode: MicrophoneMode {
+        didSet {
+            defaults.set(
+                microphoneMode.rawValue,
+                forKey: Key.microphoneMode
+            )
+        }
+    }
+
     var cleanupEnabled: Bool {
         didSet { defaults.set(cleanupEnabled, forKey: Key.cleanupEnabled) }
     }
@@ -90,6 +100,7 @@ final class AppPreferences {
             Key.keepLastDictationOnClipboard: true,
             Key.sounds: false,
             Key.pauseMediaDuringDictation: true,
+            Key.microphoneMode: MicrophoneMode.systemDefault.rawValue,
             Key.cleanupEnabled: true,
             Key.showMenuBarIcon: false,
             Key.overlayPosition: OverlayPosition.topCenter.rawValue,
@@ -103,6 +114,9 @@ final class AppPreferences {
         pauseMediaDuringDictation = defaults.bool(
             forKey: Key.pauseMediaDuringDictation
         )
+        microphoneMode = MicrophoneMode(
+            rawValue: defaults.string(forKey: Key.microphoneMode) ?? ""
+        ) ?? .systemDefault
         cleanupEnabled = defaults.bool(forKey: Key.cleanupEnabled)
         showMenuBarIcon = defaults.bool(forKey: Key.showMenuBarIcon)
         overlayPosition = OverlayPosition(

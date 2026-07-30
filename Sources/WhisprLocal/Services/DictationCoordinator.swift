@@ -75,39 +75,41 @@ final class DictationCoordinator {
         let token = recordingToken
         listeningRequestedAt = .now
         dictationLogger.info("Fn press received; preparing capture")
-        transition(to: .listening)
+        transition(to: .preparing)
         capturePreparationTask = Task { [weak self] in
             await self?.prepareCapture(for: token)
         }
     }
 
     func finishListening() {
-        guard state == .listening else { return }
+        guard state == .preparing || state == .listening else { return }
         dictationLogger.info(
-            "Fn release received; recorderActive=\(self.audio.isRecording, privacy: .public)"
+            "Fn release received; captureReady=\(self.state == .listening, privacy: .public)"
         )
         readyCueTask?.cancel()
-        guard audio.isRecording else {
+        guard state == .listening else {
             dictationLogger.info(
                 "Fn release occurred before capture became active; cancelling short dictation"
             )
             capturePreparationTask?.cancel()
             capturePreparationTask = nil
+            Task { [audio] in await audio.cancel() }
             endMediaPause(for: recordingToken)
             transition(to: .cancelled)
             settleToIdle()
             return
         }
 
-        let samples = audio.stop()
-        dictationLogger.info(
-            "Sending \(samples.count, privacy: .public) samples to transcription"
-        )
         endMediaPause(for: recordingToken)
         transition(to: .transcribing)
         playStopCue()
         processingTask = Task { [weak self] in
-            await self?.process(samples: samples)
+            guard let self else { return }
+            let samples = await audio.stop()
+            dictationLogger.info(
+                "Sending \(samples.count, privacy: .public) samples to transcription"
+            )
+            await self.process(samples: samples)
         }
     }
 
@@ -118,7 +120,7 @@ final class DictationCoordinator {
         capturePreparationTask = nil
         processingTask?.cancel()
         readyCueTask?.cancel()
-        audio.cancel()
+        Task { [audio] in await audio.cancel() }
         endMediaPause(for: recordingToken)
         transition(to: .cancelled)
         playStopCue()
@@ -243,7 +245,7 @@ final class DictationCoordinator {
         dictationLogger.error(
             "Dictation failed in state=\(self.state.label, privacy: .public): \(error.localizedDescription, privacy: .public)"
         )
-        audio.cancel()
+        Task { [audio] in await audio.cancel() }
         capturePreparationTask?.cancel()
         capturePreparationTask = nil
         readyCueTask?.cancel()
@@ -282,22 +284,35 @@ final class DictationCoordinator {
         soundPlayer?.playStopCue()
     }
 
-    private func startCapture(for token: UUID) -> Bool {
-        guard token == recordingToken, state == .listening else { return false }
+    private func startCapture(for token: UUID) async -> Bool {
+        guard token == recordingToken, state == .preparing else { return false }
         do {
-            try audio.start()
+            let info = try await audio.start(mode: preferences.microphoneMode)
+            guard !Task.isCancelled,
+                  token == recordingToken,
+                  state == .preparing else {
+                await audio.cancel()
+                return false
+            }
             if let listeningRequestedAt {
                 let startupDelay = (
                     ContinuousClock.now - listeningRequestedAt
                 ).timeInterval
                 dictationLogger.info(
-                    "Audio capture active after \(startupDelay, format: .fixed(precision: 3), privacy: .public)s"
+                    "Audio capture active after \(startupDelay, format: .fixed(precision: 3), privacy: .public)s device=\(info.deviceName, privacy: .public)"
                 )
             }
+            transition(to: .listening)
             scheduleReadyCue(for: token)
             startWarmups()
             return true
+        } catch is CancellationError {
+            dictationLogger.info("Audio capture preparation was cancelled")
+            return false
         } catch {
+            guard token == recordingToken, state == .preparing else {
+                return false
+            }
             dictationLogger.error(
                 "Audio capture start failed: \(error.localizedDescription, privacy: .public)"
             )
@@ -346,17 +361,17 @@ final class DictationCoordinator {
 
         guard !Task.isCancelled,
               token == recordingToken,
-              state == .listening else {
+              state == .preparing else {
             return
         }
 
-        await beginMediaPause(for: token)
+        startMediaPause(for: token)
         guard !Task.isCancelled,
               token == recordingToken,
-              state == .listening else {
+              state == .preparing else {
             return
         }
-        _ = startCapture(for: token)
+        _ = await startCapture(for: token)
     }
 
     private func startWarmups() {
@@ -406,7 +421,7 @@ final class DictationCoordinator {
         )
     }
 
-    private func beginMediaPause(for token: UUID) async {
+    private func startMediaPause(for token: UUID) {
         guard preferences.pauseMediaDuringDictation else {
             dictationLogger.info(
                 "Media pause skipped because the preference is disabled"
@@ -419,10 +434,12 @@ final class DictationCoordinator {
             await mediaPlayback.beginDictation(token)
         }
         mediaPauseTask = task
-        await task.value
-        dictationLogger.info(
-            "Media pause preparation completed before capture in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
-        )
+        Task {
+            await task.value
+            dictationLogger.info(
+                "Media pause handling completed in parallel with capture in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
+            )
+        }
     }
 
     private func endMediaPause(for token: UUID) {

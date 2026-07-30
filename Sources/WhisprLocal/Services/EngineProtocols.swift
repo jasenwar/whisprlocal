@@ -26,6 +26,7 @@ extension CleanupEngine {
 
 enum WhisprLocalError: LocalizedError {
     case microphoneDenied
+    case microphoneUnavailable
     case accessibilityDenied
     case recordingTooShort
     case noSpeech
@@ -40,6 +41,8 @@ enum WhisprLocalError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .microphoneDenied: "Microphone permission is required."
+        case .microphoneUnavailable:
+            "The microphone connected but did not deliver audio. Try the Mac microphone or check Sound settings."
         case .accessibilityDenied: "Accessibility permission is required to paste."
         case .recordingTooShort: "Recording was too short."
         case .noSpeech: "No speech was detected."

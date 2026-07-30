@@ -12,7 +12,9 @@ struct DictationStateMachine: Sendable {
 
     static func allows(from current: DictationState, to next: DictationState) -> Bool {
         switch (current, next) {
-        case (.idle, .listening),
+        case (.idle, .preparing),
+             (.preparing, .listening),
+             (.preparing, .cancelled),
              (.listening, .transcribing),
              (.listening, .cancelled),
              (.transcribing, .correcting),

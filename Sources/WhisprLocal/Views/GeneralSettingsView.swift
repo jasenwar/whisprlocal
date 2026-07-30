@@ -19,10 +19,22 @@ struct GeneralSettingsView: View {
                 Text("Pressing any other key while Fn is held cancels recording, so normal Fn shortcuts continue to work.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                LabeledContent("Microphone") {
-                    Text("System Default")
+                Picker(
+                    "Microphone",
+                    selection: $preferences.microphoneMode
+                ) {
+                    Text("System Default").tag(MicrophoneMode.systemDefault)
+                    Text(
+                        AudioInputDeviceResolver.builtInInputDeviceName()
+                            ?? "Mac Microphone"
+                    )
+                    .tag(MicrophoneMode.builtIn)
                 }
-                Text("Follows the current input in macOS Sound settings. AirPods are used when selected there; otherwise WhisprLocal uses the Mac’s microphone.")
+                Text(
+                    preferences.microphoneMode == .systemDefault
+                        ? "Follows macOS Sound settings, including AirPods. Bluetooth microphones can take several seconds to become ready."
+                        : "Uses the Mac’s built-in microphone even while audio plays through AirPods. This is the fastest and most reliable option."
+                )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Toggle(

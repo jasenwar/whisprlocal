@@ -17,3 +17,9 @@ The native media pause implementation also adapts OpenWhispr's use of
 explicit Pause, and explicit Play operations, builds the framework locally,
 and bundles the original BSD 3-Clause license in
 `Vendor/MediaRemoteAdapter`.
+
+OpenWhispr's microphone driver warmup, built-in-input preference, and dead
+stream recovery informed WhisprLocal's native Bluetooth hardening. WhisprLocal
+keeps its smaller AVAudioEngine pipeline: it offers the built-in microphone
+without changing macOS defaults, verifies first-buffer readiness, and retries a
+bufferless start.

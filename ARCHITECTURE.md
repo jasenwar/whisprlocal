@@ -7,11 +7,14 @@ truth; the generated Xcode project is intentionally not committed.
 ## Runtime flow
 
 1. `GlobalFnMonitor` observes Globe/Fn modifier changes in-process.
-2. `MediaPlaybackService` invokes a bundled, state-aware MediaRemote adapter
+2. `MediaPlaybackService` concurrently invokes a bundled, state-aware MediaRemote adapter
    through `/usr/bin/perl`. The bridge performs one bounded
    pause-if-currently-playing operation and records pause ownership so the
    coordinator can later send an explicit Play command without toggle risk.
-3. `AudioCaptureService` captures mono floating-point PCM and resamples to
+3. `AudioCaptureService` prepares AVAudioEngine off the main actor, optionally
+   targets the Mac's built-in input without changing the system default, and
+   waits for the first real buffer before reporting readiness. A bufferless
+   start is retried once. It captures mono floating-point PCM and resamples to
    16 kHz without writing a file.
 4. `ParakeetTranscriptionEngine` calls sherpa-onnx v1.13.4 directly. Dictionary
    terms and snippet triggers are SentencePiece-encoded and passed through the
@@ -28,11 +31,13 @@ truth; the generated Xcode project is intentionally not committed.
 
 `DictationCoordinator` is the only owner of the state machine:
 
-`idle → listening → transcribing → correcting → pasting → succeeded → idle`
+`idle → preparing → listening → transcribing → correcting → pasting → succeeded → idle`
 
-Cancellation and failure transitions are explicit. Cleanup failure never loses
-the transcript: raw Parakeet text is the fallback. A timeout terminates the
-exact owned helper process; the next dictation starts a clean instance.
+Fn release remains responsive during a slow Bluetooth route transition because
+capture preparation does not run on the main actor. Cancellation and failure
+transitions are explicit. Cleanup failure never loses the transcript: raw
+Parakeet text is the fallback. A timeout terminates the exact owned helper
+process; the next dictation starts a clean instance.
 
 ## Process lifecycle
 

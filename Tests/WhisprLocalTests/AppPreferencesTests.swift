@@ -44,6 +44,19 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertFalse(reloaded.pauseMediaDuringDictation)
     }
 
+    func testMicrophoneModeDefaultsToSystemAndPersistsBuiltInChoice() {
+        let suiteName = "WhisprLocalTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let preferences = AppPreferences(defaults: defaults)
+        XCTAssertEqual(preferences.microphoneMode, .systemDefault)
+
+        preferences.microphoneMode = .builtIn
+        let reloaded = AppPreferences(defaults: defaults)
+        XCTAssertEqual(reloaded.microphoneMode, .builtIn)
+    }
+
     func testKeepLastDictationOnClipboardDefaultsOnAndPersists() {
         let suiteName = "WhisprLocalTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suiteName)!

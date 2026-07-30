@@ -2,6 +2,7 @@ import Foundation
 
 enum DictationState: Equatable, Sendable {
     case idle
+    case preparing
     case listening
     case transcribing
     case correcting
@@ -12,7 +13,7 @@ enum DictationState: Equatable, Sendable {
 
     var isBusy: Bool {
         switch self {
-        case .listening, .transcribing, .correcting, .pasting:
+        case .preparing, .listening, .transcribing, .correcting, .pasting:
             true
         default:
             false
@@ -22,6 +23,7 @@ enum DictationState: Equatable, Sendable {
     var label: String {
         switch self {
         case .idle: "Ready"
+        case .preparing: "Connecting microphone"
         case .listening: "Listening"
         case .transcribing: "Transcribing"
         case .correcting: "Cleaning up"

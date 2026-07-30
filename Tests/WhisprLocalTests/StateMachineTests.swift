@@ -4,6 +4,7 @@ import XCTest
 final class StateMachineTests: XCTestCase {
     func testHappyPathTransitions() throws {
         var machine = DictationStateMachine()
+        try machine.transition(to: .preparing)
         try machine.transition(to: .listening)
         try machine.transition(to: .transcribing)
         try machine.transition(to: .correcting)
@@ -15,7 +16,16 @@ final class StateMachineTests: XCTestCase {
 
     func testFnInterruptionPathCancelsListening() throws {
         var machine = DictationStateMachine()
+        try machine.transition(to: .preparing)
         try machine.transition(to: .listening)
+        try machine.transition(to: .cancelled)
+        try machine.transition(to: .idle)
+        XCTAssertEqual(machine.state, .idle)
+    }
+
+    func testFnReleaseCanCancelMicrophonePreparation() throws {
+        var machine = DictationStateMachine()
+        try machine.transition(to: .preparing)
         try machine.transition(to: .cancelled)
         try machine.transition(to: .idle)
         XCTAssertEqual(machine.state, .idle)

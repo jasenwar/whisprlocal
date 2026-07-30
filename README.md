@@ -12,13 +12,17 @@ dictation continues running invisibly. WhisprLocal stores raw and corrected
 text locally for recovery, but never stores microphone audio. The transient
 dictation overlay can be placed at six top or bottom screen positions.
 
-Each dictation uses the input device currently selected as the macOS system
-default. For example, it uses AirPods when their microphone is selected in
-Sound settings and the built-in microphone when that is selected instead.
+The microphone setting offers **System Default** and **Mac Microphone**.
+System Default follows macOS Sound settings, including AirPods. Mac Microphone
+keeps the built-in input active while audio continues through AirPods, avoiding
+Bluetooth profile-switch delays. Capture preparation runs off the main thread,
+waits for a real input buffer, and retries once if the device starts without
+delivering audio.
 
 The **Pause media while dictating** setting pauses the active macOS Now Playing
-session when recording starts and resumes it when recording finishes or is
-cancelled. Media that was already paused is left paused. A narrowly adapted
+session as microphone preparation begins and resumes it when recording finishes
+or is cancelled. Media that was already paused is left paused. Media control
+runs concurrently so it cannot delay microphone startup. A narrowly adapted
 copy of OpenWhispr's state-aware MediaRemote bridge performs explicit Pause
 and Play commands locally, avoiding unreliable direct private-framework state
 queries and unsafe play/pause toggles.

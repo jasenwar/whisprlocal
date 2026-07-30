@@ -4,17 +4,39 @@ import XCTest
 @testable import WhisprLocal
 
 final class AudioAndEngineTests: XCTestCase {
-    @MainActor
-    func testCaptureUsesSystemDefaultMicrophone() throws {
+    func testCaptureUsesSystemDefaultMicrophone() async throws {
         let service = AudioCaptureService()
         let expectedDevice = try XCTUnwrap(
             AudioInputDeviceResolver.defaultInputDeviceName()
         )
-        try service.start()
-        defer { service.cancel() }
+        let info = try await service.start(mode: .systemDefault)
+        await service.cancel()
 
-        XCTAssertTrue(service.isRecording)
-        XCTAssertEqual(service.selectedInputDeviceName, expectedDevice)
+        XCTAssertEqual(info.deviceName, expectedDevice)
+        XCTAssertGreaterThan(info.sampleRate, 0)
+    }
+
+    func testBuiltInMicrophoneCanBeResolvedWithoutChangingSystemDefault() {
+        let device = AudioInputDeviceResolver.inputDevice(for: .builtIn)
+
+        XCTAssertNotNil(device)
+        XCTAssertEqual(
+            device?.transportType,
+            kAudioDeviceTransportTypeBuiltIn
+        )
+    }
+
+    func testCaptureCanUseBuiltInMicrophone() async throws {
+        let service = AudioCaptureService()
+        let expectedDevice = try XCTUnwrap(
+            AudioInputDeviceResolver.builtInInputDeviceName()
+        )
+
+        let info = try await service.start(mode: .builtIn)
+        await service.cancel()
+
+        XCTAssertEqual(info.deviceName, expectedDevice)
+        XCTAssertGreaterThan(info.sampleRate, 0)
     }
 
     func testAudioSignalMetricsDescribeAudibleSamples() {
@@ -63,18 +85,23 @@ final class AudioAndEngineTests: XCTestCase {
         XCTAssertTrue(player.isPlaying)
     }
 
-    @MainActor
     func testOpenWhisprStartCueSurvivesInputStartup() async throws {
-        let cuePlayer = try XCTUnwrap(SoundEffectPlayer())
+        let cuePlayer = try await MainActor.run {
+            try XCTUnwrap(SoundEffectPlayer())
+        }
         let capture = AudioCaptureService()
-        try capture.start()
-        defer { capture.cancel() }
+        _ = try await capture.start(mode: .systemDefault)
 
         try await Task.sleep(for: .milliseconds(120))
-        cuePlayer.playStartCue()
+        await MainActor.run {
+            cuePlayer.playStartCue()
+        }
 
-        XCTAssertTrue(cuePlayer.isReady)
-        XCTAssertTrue(cuePlayer.isPlaying)
+        await MainActor.run {
+            XCTAssertTrue(cuePlayer.isReady)
+            XCTAssertTrue(cuePlayer.isPlaying)
+        }
+        await capture.cancel()
     }
 
     func testAudioTapHandlerAcceptsBufferOffMainActor() async throws {
@@ -110,6 +137,40 @@ final class AudioAndEngineTests: XCTestCase {
         let captured = accumulator.snapshot()
         XCTAssertEqual(captured.samples, expected)
         XCTAssertEqual(captured.sampleRate, 48_000)
+    }
+
+    func testCaptureReadinessWaitsForFirstBuffer() async {
+        let gate = AudioCaptureReadinessGate()
+        Task {
+            try? await Task.sleep(for: .milliseconds(20))
+            gate.signal()
+        }
+
+        let ready = await gate.wait(timeout: .milliseconds(200))
+        XCTAssertTrue(ready)
+    }
+
+    func testCaptureReadinessTimesOutWithoutBuffers() async {
+        let gate = AudioCaptureReadinessGate()
+        let started = ContinuousClock.now
+
+        let ready = await gate.wait(timeout: .milliseconds(30))
+        XCTAssertFalse(ready)
+        XCTAssertLessThan(
+            (ContinuousClock.now - started).timeInterval,
+            0.25
+        )
+    }
+
+    func testCaptureReadinessUnblocksWhenPreparationIsCancelled() async {
+        let gate = AudioCaptureReadinessGate()
+        let task = Task {
+            await gate.wait(timeout: .seconds(1))
+        }
+        task.cancel()
+
+        let ready = await task.value
+        XCTAssertFalse(ready)
     }
 
     func testResamplingProducesExpectedLength() {

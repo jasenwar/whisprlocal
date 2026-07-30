@@ -28,6 +28,7 @@ struct DictationOverlayView: View {
 
     private var color: Color {
         switch state {
+        case .preparing: .yellow
         case .listening: .red
         case .transcribing, .correcting, .pasting: .blue
         case .succeeded: .green
@@ -39,6 +40,7 @@ struct DictationOverlayView: View {
 
     private var symbol: String {
         switch state {
+        case .preparing: "mic.badge.plus"
         case .listening: "waveform"
         case .transcribing: "text.bubble"
         case .correcting: "wand.and.stars"
