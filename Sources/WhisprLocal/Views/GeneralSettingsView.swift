@@ -33,11 +33,11 @@ struct GeneralSettingsView: View {
                 )
                 HStack {
                     Toggle(
-                        "Play start and finish sounds",
+                        "Play OpenWhispr start and stop sounds",
                         isOn: $preferences.sounds
                     )
                     Spacer()
-                    Button("Test Tink") {
+                    Button("Test start sound") {
                         environment.playReadySoundPreview()
                     }
                 }

@@ -29,7 +29,7 @@ final class DictationCoordinator {
     private let preferences: AppPreferences
     private let permissions: PermissionService
     private let mediaPlayback: any MediaPlaybackControlling
-    private let soundPlayer: SoundEffectPlayer
+    private let soundPlayer: SoundEffectPlayer?
     private var targetApplication: NSRunningApplication?
     private var processingTask: Task<Void, Never>?
     private var mediaPauseTask: Task<Void, Never>?
@@ -49,7 +49,7 @@ final class DictationCoordinator {
         preferences: AppPreferences,
         permissions: PermissionService,
         mediaPlayback: any MediaPlaybackControlling,
-        soundPlayer: SoundEffectPlayer
+        soundPlayer: SoundEffectPlayer?
     ) {
         self.audio = audio
         self.transcriptionEngine = transcriptionEngine
@@ -110,7 +110,7 @@ final class DictationCoordinator {
         )
         endMediaPause(for: recordingToken)
         transition(to: .transcribing)
-        play(named: "Pop")
+        playStopCue()
         processingTask = Task { [weak self] in
             await self?.process(samples: samples)
         }
@@ -124,7 +124,7 @@ final class DictationCoordinator {
         audio.cancel()
         endMediaPause(for: recordingToken)
         transition(to: .cancelled)
-        play(named: "Funk")
+        playStopCue()
         settleToIdle()
     }
 
@@ -186,7 +186,6 @@ final class DictationCoordinator {
                 status: status
             )
             await historyStore.reload()
-            play(named: "Glass")
             settleToIdle()
         } catch is CancellationError {
             if state.isBusy {
@@ -212,7 +211,6 @@ final class DictationCoordinator {
         readyCueTask?.cancel()
         endMediaPause(for: recordingToken)
         transition(to: .failed(error.localizedDescription))
-        play(named: "Basso")
         settleToIdle()
     }
 
@@ -241,9 +239,9 @@ final class DictationCoordinator {
         }
     }
 
-    private func play(named name: String) {
+    private func playStopCue() {
         guard preferences.sounds else { return }
-        soundPlayer.play(named: name)
+        soundPlayer?.playStopCue()
     }
 
     private func startCapture(for token: UUID) -> Bool {
@@ -279,7 +277,7 @@ final class DictationCoordinator {
         readyCueTask?.cancel()
 
         if preferences.audioInputMode == .fastStart {
-            soundPlayer.play(named: "Tink")
+            soundPlayer?.playStartCue()
             return
         }
 
@@ -291,7 +289,7 @@ final class DictationCoordinator {
                   state == .listening else {
                 return
             }
-            soundPlayer.play(named: "Tink")
+            soundPlayer?.playStartCue()
         }
     }
 

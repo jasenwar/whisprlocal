@@ -53,11 +53,6 @@ final class AudioAndEngineTests: XCTestCase {
         XCTAssertEqual(metrics.duration(sampleRate: 4), 1)
     }
 
-    @MainActor
-    func testSystemTinkSoundIsAvailable() {
-        XCTAssertNotNil(NSSound(named: NSSound.Name("Tink")))
-    }
-
     func testBoundarySilencePadsBothSidesWithoutChangingSpeech() {
         let speech: [Float] = [0.25, -0.5]
         let padded = ParakeetTranscriptionEngine.addingBoundarySilence(
@@ -67,6 +62,29 @@ final class AudioAndEngineTests: XCTestCase {
         )
 
         XCTAssertEqual(padded, [0, 0, 0.25, -0.5, 0, 0])
+    }
+
+    @MainActor
+    func testOpenWhisprStartCueMatchesUpstreamTimingAndGain() {
+        let samples = SoundEffectPlayer.makeCueSamples(
+            notes: [523.25, 659.25],
+            sampleRate: 48_000
+        )
+
+        XCTAssertEqual(samples.count, 9_840)
+        XCTAssertGreaterThan(samples.map(abs).max() ?? 0, 0.18)
+        XCTAssertLessThanOrEqual(samples.map(abs).max() ?? 1, 0.2)
+        XCTAssertTrue(samples[4_320..<5_520].allSatisfy { $0 == 0 })
+    }
+
+    @MainActor
+    func testOpenWhisprCueEngineStartsAndSchedulesStartSound() throws {
+        let player = try XCTUnwrap(SoundEffectPlayer())
+        XCTAssertTrue(player.isReady)
+
+        player.playStartCue()
+
+        XCTAssertTrue(player.isPlaying)
     }
 
     func testAudioTapHandlerAcceptsBufferOffMainActor() async throws {

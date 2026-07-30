@@ -112,7 +112,7 @@ final class AppEnvironment {
     }
 
     func playReadySoundPreview() {
-        soundPlayer.play(named: "Tink")
+        soundPlayer?.playStartCue()
     }
 
     func downloadModel() {
