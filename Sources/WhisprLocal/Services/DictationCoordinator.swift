@@ -21,6 +21,7 @@ final class DictationCoordinator {
     private let audio: any AudioCapturing
     private let transcriptionEngine: any TranscriptionEngine
     private let cleanupEngine: any CleanupEngine
+    private let pipeline: DictationPipeline
     private let pasteService: any PasteService
     private let database: LocalDatabase
     private let historyStore: HistoryStore
@@ -57,6 +58,10 @@ final class DictationCoordinator {
         self.audio = audio
         self.transcriptionEngine = transcriptionEngine
         self.cleanupEngine = cleanupEngine
+        pipeline = DictationPipeline(
+            transcriptionEngine: transcriptionEngine,
+            cleanupEngine: cleanupEngine
+        )
         self.pasteService = pasteService
         self.database = database
         self.historyStore = historyStore
@@ -103,13 +108,55 @@ final class DictationCoordinator {
         endMediaPause(for: recordingToken)
         transition(to: .transcribing)
         playStopCue()
-        processingTask = Task { [weak self] in
-            guard let self else { return }
+        let token = recordingToken
+        let hotwords =
+            dictionaryStore.terms
+            + snippetStore.snippets.map(\.trigger)
+        let dictionary = dictionaryStore.terms
+        let snippets = snippetStore.snippets
+        let cleanupEnabled = preferences.cleanupEnabled
+        let cleanupWarmup = cleanupWarmupTask
+        cleanupWarmupTask = nil
+        transcriptionWarmupTask = nil
+        let pipeline = pipeline
+        let audio = audio
+        processingTask = Task.detached(priority: .userInitiated) {
             let samples = await audio.stop()
             dictationLogger.info(
                 "Sending \(samples.count, privacy: .public) samples to transcription"
             )
-            await self.process(samples: samples)
+            let request = DictationPipelineRequest(
+                samples: samples,
+                hotwords: hotwords,
+                dictionary: dictionary,
+                snippets: snippets,
+                cleanupEnabled: cleanupEnabled,
+                cleanupWarmupTask: cleanupWarmup
+            )
+            do {
+                let output = try await pipeline.run(
+                    request: request
+                ) { progress in
+                    Task { @MainActor [weak self] in
+                        self?.receivePipelineProgress(
+                            progress,
+                            token: token
+                        )
+                    }
+                }
+                await self.completePipeline(
+                    output,
+                    sampleCount: samples.count,
+                    token: token
+                )
+            } catch is CancellationError {
+                await self.finishCancelledPipeline(token: token)
+            } catch {
+                await self.failPipeline(
+                    error.localizedDescription,
+                    token: token
+                )
+            }
         }
     }
 
@@ -119,6 +166,7 @@ final class DictationCoordinator {
         capturePreparationTask?.cancel()
         capturePreparationTask = nil
         processingTask?.cancel()
+        processingTask = nil
         readyCueTask?.cancel()
         Task { [audio] in await audio.cancel() }
         endMediaPause(for: recordingToken)
@@ -127,72 +175,57 @@ final class DictationCoordinator {
         settleToIdle()
     }
 
-    private func process(samples: [Float]) async {
-        let started = ContinuousClock.now
-        do {
-            // The unstructured warmup remains alive if it is still finishing.
-            // Clearing our reference allows the next dictation to start a fresh
-            // health check without cancelling this one.
-            transcriptionWarmupTask = nil
-            let hotwords = dictionaryStore.terms + snippetStore.snippets.map(\.trigger)
-            let transcriptionStarted = ContinuousClock.now
-            let transcript = try await transcriptionEngine.transcribe(
-                samples: samples,
-                sampleRate: 16_000,
-                hotwords: hotwords
-            )
-            dictationLogger.info(
-                "Transcription stage completed in \((ContinuousClock.now - transcriptionStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
-            )
-            try Task.checkCancellation()
-            lastRawText = transcript.text
+    private func receivePipelineProgress(
+        _ progress: DictationPipelineProgress,
+        token: UUID
+    ) {
+        guard token == recordingToken, state == .transcribing else {
+            return
+        }
+        let handoffSeconds = (
+            ContinuousClock.now - progress.emittedAt
+        ).timeInterval
+        dictationLogger.info(
+            "Main actor received transcript progress after \(handoffSeconds, format: .fixed(precision: 3), privacy: .public)s"
+        )
+        lastRawText = progress.transcript.text
+        transition(to: .correcting)
+    }
+
+    private func completePipeline(
+        _ output: DictationPipelineOutput,
+        sampleCount: Int,
+        token: UUID
+    ) async {
+        guard token == recordingToken,
+              state == .transcribing || state == .correcting else {
+            return
+        }
+        processingTask = nil
+        let finalHandoffSeconds = (
+            ContinuousClock.now - output.completedAt
+        ).timeInterval
+        dictationLogger.info(
+            "Main actor received completed pipeline after \(finalHandoffSeconds, format: .fixed(precision: 3), privacy: .public)s"
+        )
+        if state == .transcribing {
+            lastRawText = output.transcript.text
             transition(to: .correcting)
+        }
+        if let fallback = output.cleanupFallbackDescription {
+            showCleanupFallbackWarning(fallback)
+        }
 
-            var corrected = transcript.text
-            var cleanupIdentifier = "raw fallback"
-            if preferences.cleanupEnabled {
-                let cleanupWarmup = cleanupWarmupTask
-                cleanupWarmupTask = nil
-                let wordCount = transcript.text
-                    .split(whereSeparator: \.isWhitespace)
-                    .count
-                let cleanupDeadline =
-                    LocalCleanupRuntimeConfiguration.endToEndDeadline(
-                        wordCount: wordCount
-                    )
-                let cleanupStarted = ContinuousClock.now
-                dictationLogger.info(
-                    "Cleanup pipeline started with endToEndDeadline=\(cleanupDeadline.timeInterval, format: .fixed(precision: 3), privacy: .public)s warmupPending=\(cleanupWarmup != nil, privacy: .public)"
-                )
-                do {
-                    corrected = try await BoundedCleanupExecutor.correct(
-                        using: cleanupEngine,
-                        warmupTask: cleanupWarmup,
-                        text: transcript.text,
-                        dictionary: dictionaryStore.terms,
-                        timeout: cleanupDeadline
-                    )
-                    dictationLogger.info(
-                        "Cleanup stage completed in \((ContinuousClock.now - cleanupStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
-                    )
-                    cleanupIdentifier = LocalCleanupModelManifest.production.displayName
-                } catch {
-                    dictationLogger.error(
-                        "Cleanup fell back to raw text after \((ContinuousClock.now - cleanupStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s: \(error.localizedDescription, privacy: .public)"
-                    )
-                    showCleanupFallbackWarning(error)
-                }
-            } else {
-                cleanupIdentifier = "disabled"
-            }
+        lastCorrectedText = output.correctedText
+        let pasteText = PasteTextFormatter.withTrailingSpace(
+            output.correctedText
+        )
+        let latency = (
+            ContinuousClock.now - output.startedAt
+        ).timeInterval
+        var status = "completed"
 
-            try Task.checkCancellation()
-            corrected = SnippetExpander.expand(corrected, snippets: snippetStore.snippets)
-            lastCorrectedText = corrected
-            let pasteText = PasteTextFormatter.withTrailingSpace(corrected)
-            let latency = (ContinuousClock.now - started).timeInterval
-            var status = "completed"
-
+        do {
             if preferences.autoPaste {
                 transition(to: .pasting)
                 await activateTargetIfNeeded()
@@ -203,7 +236,8 @@ final class DictationCoordinator {
                 try await pasteService.paste(
                     pasteText,
                     targetProcessIdentifier: targetProcessIdentifier,
-                    restoringClipboard: !preferences.keepLastDictationOnClipboard
+                    restoringClipboard:
+                        !preferences.keepLastDictationOnClipboard
                 )
                 dictationLogger.info(
                     "Paste stage completed in \((ContinuousClock.now - pasteStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
@@ -215,42 +249,57 @@ final class DictationCoordinator {
             }
 
             _ = try await database.insertTranscription(
-                rawText: transcript.text,
-                correctedText: corrected,
-                audioDuration: TimeInterval(samples.count) / 16_000,
+                rawText: output.transcript.text,
+                correctedText: output.correctedText,
+                audioDuration: TimeInterval(sampleCount) / 16_000,
                 processingLatency: latency,
-                transcriptionEngine: transcript.engine,
-                cleanupEngine: cleanupIdentifier,
+                transcriptionEngine: output.transcript.engine,
+                cleanupEngine: output.cleanupEngineIdentifier,
                 status: status
             )
             await historyStore.reload()
             settleToIdle()
         } catch is CancellationError {
-            if state.isBusy {
-                transition(to: .cancelled)
-                settleToIdle()
-            }
+            finishCancelledPipeline(token: token)
         } catch {
             fail(error)
         }
     }
 
-    private func showCleanupFallbackWarning(_ error: Error) {
+    private func finishCancelledPipeline(token: UUID) {
+        guard token == recordingToken, state.isBusy else { return }
+        processingTask = nil
+        transition(to: .cancelled)
+        settleToIdle()
+    }
+
+    private func failPipeline(_ message: String, token: UUID) {
+        guard token == recordingToken, state.isBusy else { return }
+        processingTask = nil
+        fail(message: message)
+    }
+
+    private func showCleanupFallbackWarning(_ description: String) {
         guard !preferences.didShowCleanupWarning else { return }
         preferences.didShowCleanupWarning = true
-        warningMessage = "Cleanup was unavailable, so WhisprLocal pasted the raw transcript. \(error.localizedDescription)"
+        warningMessage =
+            "Cleanup was unavailable, so WhisprLocal pasted the raw transcript. \(description)"
     }
 
     private func fail(_ error: Error) {
+        fail(message: error.localizedDescription)
+    }
+
+    private func fail(message: String) {
         dictationLogger.error(
-            "Dictation failed in state=\(self.state.label, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            "Dictation failed in state=\(self.state.label, privacy: .public): \(message, privacy: .public)"
         )
         Task { [audio] in await audio.cancel() }
         capturePreparationTask?.cancel()
         capturePreparationTask = nil
         readyCueTask?.cancel()
         endMediaPause(for: recordingToken)
-        transition(to: .failed(error.localizedDescription))
+        transition(to: .failed(message))
         settleToIdle()
     }
 
@@ -376,7 +425,9 @@ final class DictationCoordinator {
 
     private func startWarmups() {
         if transcriptionWarmupTask == nil {
-            transcriptionWarmupTask = Task { [transcriptionEngine] in
+            transcriptionWarmupTask = Task.detached(
+                priority: .userInitiated
+            ) { [transcriptionEngine] in
                 let started = ContinuousClock.now
                 await transcriptionEngine.prewarm()
                 dictationLogger.info(
@@ -392,7 +443,9 @@ final class DictationCoordinator {
             return
         }
         if cleanupWarmupTask == nil {
-            cleanupWarmupTask = Task { [cleanupEngine] in
+            cleanupWarmupTask = Task.detached(
+                priority: .userInitiated
+            ) { [cleanupEngine] in
                 let started = ContinuousClock.now
                 await cleanupEngine.prewarm()
                 dictationLogger.info(

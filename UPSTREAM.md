@@ -23,3 +23,9 @@ stream recovery informed WhisprLocal's native Bluetooth hardening. WhisprLocal
 keeps its smaller AVAudioEngine pipeline: it offers the built-in microphone
 without changing macOS defaults, verifies first-buffer readiness, and retries a
 bufferless start.
+
+OpenWhispr's separation of background processing from renderer callbacks also
+informed WhisprLocal's execution boundary. The native implementation keeps
+Parakeet transcription, local cleanup, and snippet expansion in one detached
+pipeline and returns to the main actor only for state and AppKit work. No
+upstream processing code was copied.

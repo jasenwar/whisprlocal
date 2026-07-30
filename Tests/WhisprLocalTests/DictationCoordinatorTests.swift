@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import XCTest
 @testable import WhisprLocal
 
@@ -86,9 +87,53 @@ final class DictationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testProcessingStagesContinueWhileMainActorIsBusy() async throws {
+        let events = LockedEventRecorder()
+        let audio = FakeAudioCapture(events: events)
+        let paste = RecordingPasteService(events: events)
+        let fixture = try makeFixture(
+            audio: audio,
+            media: OrderedMediaPlayback(events: events, delay: .zero),
+            transcriptionEngine: OrderedTranscriptionEngine(
+                events: events,
+                delay: .milliseconds(20)
+            ),
+            cleanupEngine: OrderedCleanupEngine(
+                events: events,
+                delay: .milliseconds(20)
+            ),
+            pasteService: paste,
+            cleanupEnabled: true
+        )
+        defer {
+            fixture.defaults.removePersistentDomain(
+                forName: fixture.suiteName
+            )
+        }
+
+        fixture.coordinator.beginListening()
+        try await Task.sleep(for: .milliseconds(40))
+        XCTAssertEqual(fixture.coordinator.state, .listening)
+
+        fixture.coordinator.finishListening()
+        blockCoordinatorMainThread(forMicroseconds: 150_000)
+
+        XCTAssertTrue(events.values.contains("transcription-finished"))
+        XCTAssertTrue(events.values.contains("cleanup-finished"))
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(fixture.coordinator.state, .succeeded)
+        XCTAssertTrue(events.values.contains("paste"))
+    }
+
+    @MainActor
     private func makeFixture(
         audio: any AudioCapturing,
-        media: any MediaPlaybackControlling
+        media: any MediaPlaybackControlling,
+        transcriptionEngine: any TranscriptionEngine =
+            NoopTranscriptionEngine(),
+        cleanupEngine: any CleanupEngine = NoopCleanupEngine(),
+        pasteService: any PasteService = SystemPasteService(),
+        cleanupEnabled: Bool = false
     ) throws -> (
         coordinator: DictationCoordinator,
         defaults: UserDefaults,
@@ -103,13 +148,13 @@ final class DictationCoordinatorTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         let preferences = AppPreferences(defaults: defaults)
         preferences.pauseMediaDuringDictation = true
-        preferences.cleanupEnabled = false
+        preferences.cleanupEnabled = cleanupEnabled
 
         let coordinator = DictationCoordinator(
             audio: audio,
-            transcriptionEngine: NoopTranscriptionEngine(),
-            cleanupEngine: NoopCleanupEngine(),
-            pasteService: SystemPasteService(),
+            transcriptionEngine: transcriptionEngine,
+            cleanupEngine: cleanupEngine,
+            pasteService: pasteService,
             database: database,
             historyStore: HistoryStore(database: database),
             dictionaryStore: DictionaryStore(database: database),
@@ -121,6 +166,12 @@ final class DictationCoordinatorTests: XCTestCase {
         )
         return (coordinator, defaults, suiteName)
     }
+}
+
+private func blockCoordinatorMainThread(
+    forMicroseconds duration: useconds_t
+) {
+    usleep(duration)
 }
 
 private final class LockedEventRecorder: @unchecked Sendable {
@@ -222,5 +273,70 @@ private actor NoopTranscriptionEngine: TranscriptionEngine {
 private actor NoopCleanupEngine: CleanupEngine {
     func correct(text: String, dictionary: [String]) -> String {
         text
+    }
+}
+
+private actor OrderedTranscriptionEngine: TranscriptionEngine {
+    private let events: LockedEventRecorder
+    private let delay: Duration
+
+    init(events: LockedEventRecorder, delay: Duration) {
+        self.events = events
+        self.delay = delay
+    }
+
+    func transcribe(
+        samples: [Float],
+        sampleRate: Int,
+        hotwords: [String]
+    ) async throws -> Transcript {
+        events.append("transcription-start")
+        try await Task.sleep(for: delay)
+        events.append("transcription-finished")
+        return Transcript(
+            text: "raw test text",
+            engine: "test",
+            duration: delay.timeInterval
+        )
+    }
+
+    func prewarm() {}
+    func releaseIfIdle() {}
+}
+
+private actor OrderedCleanupEngine: CleanupEngine {
+    private let events: LockedEventRecorder
+    private let delay: Duration
+
+    init(events: LockedEventRecorder, delay: Duration) {
+        self.events = events
+        self.delay = delay
+    }
+
+    func correct(
+        text: String,
+        dictionary: [String]
+    ) async throws -> String {
+        events.append("cleanup-start")
+        try await Task.sleep(for: delay)
+        events.append("cleanup-finished")
+        return "Cleaned test text."
+    }
+}
+
+@MainActor
+private final class RecordingPasteService: PasteService {
+    private let events: LockedEventRecorder
+
+    init(events: LockedEventRecorder) {
+        self.events = events
+    }
+
+    func paste(
+        _ text: String,
+        targetProcessIdentifier: pid_t?,
+        restoringClipboard: Bool
+    ) {
+        events.append("paste")
     }
 }

@@ -16,18 +16,21 @@ truth; the generated Xcode project is intentionally not committed.
    waits for the first real buffer before reporting readiness. A bufferless
    start is retried once. It captures mono floating-point PCM and resamples to
    16 kHz without writing a file.
-4. `ParakeetTranscriptionEngine` calls sherpa-onnx v1.13.4 directly. Dictionary
+4. `DictationPipeline` runs detached from the main actor at user-initiated
+   priority. It owns the complete transcription, cleanup, and snippet-expansion
+   sequence so UI work cannot delay one stage from handing off to the next.
+5. `ParakeetTranscriptionEngine` calls sherpa-onnx v1.13.4 directly. Dictionary
    terms and snippet triggers are SentencePiece-encoded and passed through the
    per-stream hotword API with modified beam search and score 1.5.
-5. `LocalCleanupEngine` protects fragile values, then sends a deterministic
+6. `LocalCleanupEngine` protects fragile values, then sends a deterministic
    conservative-cleanup request to the pinned Qwen2.5 3B model.
    `LlamaServerController` owns one bundled, signed `llama-server` helper on a
    random loopback port with an ephemeral API key and strict request deadline.
-6. `SnippetExpander` performs Unicode-aware, whole-phrase, longest-first
+7. `SnippetExpander` performs Unicode-aware, whole-phrase, longest-first
    expansion.
-7. `SystemPasteService` snapshots every pasteboard item/type, posts Command-V,
+8. `SystemPasteService` snapshots every pasteboard item/type, posts Command-V,
    waits for the destination to consume it, and restores the snapshot.
-8. `LocalDatabase` stores the raw and corrected text and processing metadata.
+9. `LocalDatabase` stores the raw and corrected text and processing metadata.
 
 `DictationCoordinator` is the only owner of the state machine:
 
@@ -38,6 +41,11 @@ capture preparation does not run on the main actor. Cancellation and failure
 transitions are explicit. Cleanup failure never loses the transcript: raw
 Parakeet text is the fallback. A timeout terminates the exact owned helper
 process; the next dictation starts a clean instance.
+
+Only state publication, overlay updates, pasteboard/AppKit work, and database
+view refreshes return to the main actor. Pipeline telemetry records both
+background stage durations and pipeline-to-main-actor handoff delay so UI
+contention is distinguishable from model latency.
 
 ## Process lifecycle
 
