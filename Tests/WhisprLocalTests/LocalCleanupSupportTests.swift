@@ -93,6 +93,70 @@ final class LocalCleanupSupportTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Do not wrap the output in quotation marks"))
         XCTAssertTrue(prompt.contains("Preserve protected placeholders exactly"))
         XCTAssertTrue(prompt.contains("If uncertain, keep the original wording"))
+        XCTAssertTrue(
+            prompt.contains(
+                "Never remove, merge, or reorder a complete sentence"
+            )
+        )
+    }
+
+    func testPreservationValidatorRejectsRemovedCompleteSentence() {
+        XCTAssertThrowsError(
+            try TranscriptPreservationValidator.validate(
+                original: """
+                Could this be made better? What do you think based off the logs \
+                and the testing I did?
+                """,
+                cleaned: """
+                What do you think based off the logs and the testing I did?
+                """
+            )
+        ) { error in
+            guard case LocalCleanupValidationError.meaningChanged = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
+    func testPreservationValidatorRejectsRemovedUnpunctuatedClause() {
+        XCTAssertThrowsError(
+            try TranscriptPreservationValidator.validate(
+                original: """
+                email the report to Bob and restart the server tomorrow
+                """,
+                cleaned: "Restart the server tomorrow."
+            )
+        ) { error in
+            guard case LocalCleanupValidationError.meaningChanged = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+        XCTAssertThrowsError(
+            try TranscriptPreservationValidator.validate(
+                original: """
+                I actually want to email the report to Bob and restart the \
+                server tomorrow
+                """,
+                cleaned: "Restart the server tomorrow."
+            )
+        )
+    }
+
+    func testPreservationValidatorAllowsConservativeCleanup() {
+        XCTAssertNoThrow(
+            try TranscriptPreservationValidator.validate(
+                original: """
+                um i think we should we should restart the Azure VM tomorrow
+                """,
+                cleaned: "I think we should restart the Azure VM tomorrow."
+            )
+        )
+        XCTAssertNoThrow(
+            try TranscriptPreservationValidator.validate(
+                original: "Send it Tuesday actually make that Wednesday.",
+                cleaned: "Send it Wednesday."
+            )
+        )
     }
 
     func testTranscriptProtectorRestoresDictionaryAndFragileValues() throws {
@@ -313,6 +377,34 @@ final class LocalCleanupSupportTests: XCTestCase {
 
         let recycleCount = await transport.counts.recycle
         XCTAssertEqual(recycleCount, 1)
+    }
+
+    func testLocalCleanupEngineRejectsRemovedCompleteSentence() async {
+        let transport = FakeLocalCleanupTransport(
+            response: """
+            What do you think based off the logs and the testing I did?
+            """
+        )
+        let engine = LocalCleanupEngine(transport: transport)
+
+        do {
+            _ = try await engine.correct(
+                text: """
+                Could this be made better? What do you think based off the logs \
+                and the testing I did?
+                """,
+                dictionary: []
+            )
+            XCTFail("Expected meaning-changing cleanup to be rejected.")
+        } catch LocalCleanupValidationError.meaningChanged {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        let recycleCount = await transport.counts.recycle
+        XCTAssertEqual(recycleCount, 1)
+        await engine.shutdown()
     }
 
     func testBundledHelperCleansWithPinnedModelWhenFixtureIsAvailable() async throws {

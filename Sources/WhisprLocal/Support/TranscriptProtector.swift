@@ -159,6 +159,7 @@ enum LocalCleanupValidationError: LocalizedError, Sendable {
     case invalidLength
     case invalidPlaceholder
     case unexpectedFormatting
+    case meaningChanged
     case invalidResponse
     case invalidModel(String)
 
@@ -169,6 +170,8 @@ enum LocalCleanupValidationError: LocalizedError, Sendable {
         case .invalidLength: "Local cleanup changed the transcript length unexpectedly."
         case .invalidPlaceholder: "Local cleanup changed a protected value."
         case .unexpectedFormatting: "Local cleanup returned commentary or formatting."
+        case .meaningChanged:
+            "Local cleanup removed meaningful transcript content."
         case .invalidResponse: "Local cleanup returned an invalid response."
         case .invalidModel(let reason): "Local cleanup model is invalid: \(reason)"
         }

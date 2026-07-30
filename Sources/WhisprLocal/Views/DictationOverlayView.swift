@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct DictationOverlayView: View {
+    static let contentSize = CGSize(width: 260, height: 56)
+
     let state: DictationState
 
     var body: some View {
@@ -12,18 +14,22 @@ struct DictationOverlayView: View {
                 Image(systemName: symbol)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(color)
-                    .symbolEffect(.pulse, isActive: state.isBusy)
             }
             Text(state.label)
                 .font(.system(.body, design: .rounded, weight: .semibold))
                 .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: 176, alignment: .leading)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .frame(
+            width: Self.contentSize.width,
+            height: Self.contentSize.height
+        )
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.14)))
         .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
-        .fixedSize()
     }
 
     private var color: Color {

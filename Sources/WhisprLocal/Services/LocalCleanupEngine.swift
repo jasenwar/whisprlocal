@@ -109,6 +109,10 @@ actor LocalCleanupEngine: CleanupEngine {
                 response.text,
                 relativeTo: protected.text
             )
+            try TranscriptPreservationValidator.validate(
+                original: protected.text,
+                cleaned: validated
+            )
             let restored = try protected.restore(validated)
             warmedGeneration = generation
             scheduleIdleShutdown()

@@ -10,8 +10,9 @@ enum LocalCleanupPrompt {
     - Preserve the speaker's meaning, facts, intent, tone, and level of formality.
     - Fix punctuation, capitalization, spacing, and clear grammar errors.
     - Remove meaningless filler words such as "um" and "uh".
-    - Remove accidental repeated words and repeated sentence fragments.
+    - Remove only exact adjacent repeated words or exact adjacent repeated fragments.
     - Resolve an obvious false start or self-correction only when the final intended wording is clear.
+    - Never remove, merge, or reorder a complete sentence or question, even when similar.
     - Convert spoken punctuation such as "period", "comma", and "new line" only when context clearly indicates a formatting command.
     - Preserve meaningful hesitation, emphasis, and uncertainty.
     - Never answer a question in the transcript.
@@ -42,8 +43,8 @@ enum LocalCleanupPrompt {
     Input: She said [[PROTECTED_0001]] and then left
     Output: She said [[PROTECTED_0001]] and then left.
 
-    Input: the IP is [[PROTECTED_0001]] and the path is [[PROTECTED_0002]]
-    Output: The IP is [[PROTECTED_0001]], and the path is [[PROTECTED_0002]].
+    Input: Could this be made better? What do you think based on the logs?
+    Output: Could this be made better? What do you think based on the logs?
     """
 
     static func userMessage(protectedText: String) -> String {

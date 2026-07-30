@@ -3,15 +3,30 @@ import SwiftUI
 
 @MainActor
 final class OverlayPanelController {
+    static let contentSize = DictationOverlayView.contentSize
+
     private let panel: NSPanel
+    private let hosting: NSHostingController<DictationOverlayView>
+    private var isPresented = false
+    private var lastPosition: OverlayPosition?
 
     init() {
-        panel = NSPanel(
-            contentRect: .zero,
+        let hosting = NSHostingController(
+            rootView: DictationOverlayView(state: .preparing)
+        )
+        hosting.view.frame = NSRect(
+            origin: .zero,
+            size: Self.contentSize
+        )
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: Self.contentSize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: true
         )
+        self.hosting = hosting
+        self.panel = panel
+
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
@@ -20,20 +35,35 @@ final class OverlayPanelController {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.ignoresMouseEvents = true
+        panel.contentViewController = hosting
     }
 
     func update(for state: DictationState, position: OverlayPosition) {
         guard state != .idle else {
-            panel.orderOut(nil)
+            if isPresented {
+                panel.orderOut(nil)
+                isPresented = false
+            }
             return
         }
-        let hosting = NSHostingController(rootView: DictationOverlayView(state: state))
-        hosting.view.layoutSubtreeIfNeeded()
-        let size = hosting.view.fittingSize
-        panel.contentViewController = hosting
-        panel.setContentSize(size)
-        placePanel(size: size, at: position)
-        panel.orderFrontRegardless()
+
+        hosting.rootView = DictationOverlayView(state: state)
+        if !isPresented || lastPosition != position {
+            placePanel(size: Self.contentSize, at: position)
+            lastPosition = position
+        }
+        if !isPresented {
+            panel.orderFrontRegardless()
+            isPresented = true
+        }
+    }
+
+    var contentControllerIdentity: ObjectIdentifier {
+        ObjectIdentifier(hosting)
+    }
+
+    var displayedState: DictationState {
+        hosting.rootView.state
     }
 
     private func placePanel(size: NSSize, at position: OverlayPosition) {

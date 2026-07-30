@@ -108,4 +108,24 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(origin.x, 580)
         XCTAssertEqual(origin.y, 92)
     }
+
+    func testOverlayReusesOneHostingControllerAcrossStateChanges() {
+        let controller = OverlayPanelController()
+        let identity = controller.contentControllerIdentity
+        let states: [DictationState] = [
+            .preparing,
+            .listening,
+            .transcribing,
+            .correcting,
+            .pasting,
+            .succeeded,
+        ]
+
+        for state in states {
+            controller.update(for: state, position: .bottomCenter)
+            XCTAssertEqual(controller.contentControllerIdentity, identity)
+            XCTAssertEqual(controller.displayedState, state)
+        }
+        controller.update(for: .idle, position: .bottomCenter)
+    }
 }

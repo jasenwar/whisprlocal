@@ -26,6 +26,9 @@ truth; the generated Xcode project is intentionally not committed.
    conservative-cleanup request to the pinned Qwen2.5 3B model.
    `LlamaServerController` owns one bundled, signed `llama-server` helper on a
    random loopback port with an ephemeral API key and strict request deadline.
+   A deterministic preservation validator rejects deleted sentence boundaries
+   or substantial content loss, causing the pipeline to paste the intact raw
+   transcript instead.
 7. `SnippetExpander` performs Unicode-aware, whole-phrase, longest-first
    expansion.
 8. `SystemPasteService` snapshots every pasteboard item/type, posts Command-V,
@@ -53,7 +56,10 @@ contention is distinguishable from model latency.
   while Settings is closed.
 - Settings temporarily switches to regular activation so the app appears in the
   Dock. An optional `NSStatusItem` can reopen Settings or quit.
-- A nonactivating `NSPanel` appears only for transient dictation state.
+- A nonactivating `NSPanel` appears only for transient dictation state. It owns
+  one fixed-size `NSHostingController` for its lifetime and updates that
+  controller in place, avoiding synchronous layout, controller replacement,
+  resize, animation, and window-order churn between dictation stages.
 - Manual launch and reopen present Settings.
 - `SMAppService.mainApp` registers launch at login. The login launch Apple event
   suppresses Settings so startup remains invisible.
