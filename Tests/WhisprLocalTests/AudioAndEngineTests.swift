@@ -58,6 +58,17 @@ final class AudioAndEngineTests: XCTestCase {
         XCTAssertNotNil(NSSound(named: NSSound.Name("Tink")))
     }
 
+    func testBoundarySilencePadsBothSidesWithoutChangingSpeech() {
+        let speech: [Float] = [0.25, -0.5]
+        let padded = ParakeetTranscriptionEngine.addingBoundarySilence(
+            to: speech,
+            sampleRate: 10,
+            duration: 0.2
+        )
+
+        XCTAssertEqual(padded, [0, 0, 0.25, -0.5, 0, 0])
+    }
+
     func testAudioTapHandlerAcceptsBufferOffMainActor() async throws {
         let accumulator = AudioSampleAccumulator()
         let expected = [Float](repeating: 0.25, count: 1_024)

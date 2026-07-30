@@ -50,39 +50,38 @@ actor ParakeetTranscriptionEngine: TranscriptionEngine {
 
         let normalizedHotwords = hotwordEncoder?.encode(hotwords) ?? ""
 
-        let stream: OpaquePointer? = normalizedHotwords.withCString { pointer in
-            normalizedHotwords.isEmpty
-                ? SherpaOnnxCreateOfflineStream(recognizer)
-                : SherpaOnnxCreateOfflineStreamWithHotwords(recognizer, pointer)
-        }
-        guard let stream else { throw WhisprLocalError.transcriptionFailed }
-        defer { SherpaOnnxDestroyOfflineStream(stream) }
+        let preparedSamples = Self.addingBoundarySilence(
+            to: samples,
+            sampleRate: sampleRate,
+            duration: 0.25
+        )
+        var text = try decode(
+            recognizer: recognizer,
+            samples: preparedSamples,
+            sampleRate: sampleRate,
+            hotwords: normalizedHotwords
+        )
 
-        samples.withUnsafeBufferPointer { buffer in
-            SherpaOnnxAcceptWaveformOffline(
-                stream,
-                Int32(sampleRate),
-                buffer.baseAddress,
-                Int32(clamping: samples.count)
+        if text.isEmpty {
+            transcriptionLogger.info(
+                "Primary decode was empty; retrying with additional boundary silence and no hotwords"
+            )
+            let retrySamples = Self.addingBoundarySilence(
+                to: samples,
+                sampleRate: sampleRate,
+                duration: 0.60
+            )
+            text = try decode(
+                recognizer: recognizer,
+                samples: retrySamples,
+                sampleRate: sampleRate,
+                hotwords: ""
             )
         }
-        SherpaOnnxDecodeOfflineStream(recognizer, stream)
-        guard let result = SherpaOnnxGetOfflineStreamResult(stream) else {
-            transcriptionLogger.error("Recognizer returned no result object")
-            throw WhisprLocalError.transcriptionFailed
-        }
-        defer { SherpaOnnxDestroyOfflineRecognizerResult(result) }
-        guard let textPointer = result.pointee.text else {
-            transcriptionLogger.error(
-                "Recognizer result had no text pointer despite audible input"
-            )
-            throw WhisprLocalError.noSpeech
-        }
-        let text = String(cString: textPointer)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+
         guard !text.isEmpty else {
             transcriptionLogger.error(
-                "Recognizer returned empty text despite audible input"
+                "Recognizer returned empty text after fallback decode despite audible input"
             )
             throw WhisprLocalError.noSpeech
         }
@@ -108,12 +107,63 @@ actor ParakeetTranscriptionEngine: TranscriptionEngine {
         recognizer = nil
     }
 
+    nonisolated static func addingBoundarySilence(
+        to samples: [Float],
+        sampleRate: Int,
+        duration: TimeInterval
+    ) -> [Float] {
+        guard sampleRate > 0, duration > 0 else { return samples }
+        let silenceCount = Int((Double(sampleRate) * duration).rounded())
+        guard silenceCount > 0 else { return samples }
+        return Array(repeating: 0, count: silenceCount)
+            + samples
+            + Array(repeating: 0, count: silenceCount)
+    }
+
     private func ensureRecognizer() async throws {
         guard recognizer == nil else { return }
         let paths = try await modelManager.paths()
         recognizer = try createRecognizer(paths: paths).map(RecognizerHandle.init)
         hotwordEncoder = try HotwordEncoder(tokensFile: paths.tokens)
         guard recognizer != nil else { throw WhisprLocalError.transcriptionFailed }
+    }
+
+    private func decode(
+        recognizer: OpaquePointer,
+        samples: [Float],
+        sampleRate: Int,
+        hotwords: String
+    ) throws -> String {
+        let stream: OpaquePointer? = hotwords.withCString { pointer in
+            hotwords.isEmpty
+                ? SherpaOnnxCreateOfflineStream(recognizer)
+                : SherpaOnnxCreateOfflineStreamWithHotwords(recognizer, pointer)
+        }
+        guard let stream else { throw WhisprLocalError.transcriptionFailed }
+        defer { SherpaOnnxDestroyOfflineStream(stream) }
+
+        samples.withUnsafeBufferPointer { buffer in
+            SherpaOnnxAcceptWaveformOffline(
+                stream,
+                Int32(sampleRate),
+                buffer.baseAddress,
+                Int32(clamping: samples.count)
+            )
+        }
+        SherpaOnnxDecodeOfflineStream(recognizer, stream)
+        guard let result = SherpaOnnxGetOfflineStreamResult(stream) else {
+            transcriptionLogger.error("Recognizer returned no result object")
+            throw WhisprLocalError.transcriptionFailed
+        }
+        defer { SherpaOnnxDestroyOfflineRecognizerResult(result) }
+        guard let textPointer = result.pointee.text else {
+            transcriptionLogger.info(
+                "Recognizer result had no text pointer"
+            )
+            return ""
+        }
+        return String(cString: textPointer)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func createRecognizer(paths: ParakeetModelPaths) throws -> OpaquePointer? {
