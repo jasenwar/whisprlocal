@@ -1,5 +1,11 @@
 @preconcurrency import AppKit
 import CoreServices
+import OSLog
+
+private let appLifecycleLogger = Logger(
+    subsystem: "com.jasenguerra.whisprlocal",
+    category: "Lifecycle"
+)
 
 @MainActor
 protocol LoginRelaunchControlling: AnyObject {
@@ -29,15 +35,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchedAsLoginItem = Self.isLoginItemLaunch(
             NSAppleEventManager.shared().currentAppleEvent
         )
+        appLifecycleLogger.info(
+            "Will finish launch: background=\(Self.isBackgroundLaunch) loginEvent=\(self.launchedAsLoginItem)"
+        )
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         launchedAsLoginItem = launchedAsLoginItem || Self.isLoginItemLaunch(
             NSAppleEventManager.shared().currentAppleEvent
         )
+        let shouldRemainHidden = Self.isBackgroundLaunch || launchedAsLoginItem
+        appLifecycleLogger.info(
+            "Did finish launch: background=\(Self.isBackgroundLaunch) loginEvent=\(self.launchedAsLoginItem) hidden=\(shouldRemainHidden)"
+        )
         AppEnvironment.shared.start()
-        guard !CommandLine.arguments.contains("--background"),
-              !launchedAsLoginItem else { return }
+        guard !shouldRemainHidden else { return }
+        appLifecycleLogger.info("Presenting Settings after manual launch")
         showSettings()
     }
 
@@ -45,6 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool
     ) -> Bool {
+        appLifecycleLogger.info(
+            "Handling manual reopen: visibleWindows=\(flag)"
+        )
         showSettings()
         return true
     }
@@ -79,5 +95,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return false
         }
         return event.paramDescriptor(forKeyword: keyAELaunchedAsLogInItem) != nil
+    }
+
+    static var isBackgroundLaunch: Bool {
+        CommandLine.arguments.contains("--background")
     }
 }

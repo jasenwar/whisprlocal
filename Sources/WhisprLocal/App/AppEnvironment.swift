@@ -82,6 +82,8 @@ final class AppEnvironment {
 
     func start() {
         NSApp.setActivationPolicy(.accessory)
+        launchAtLogin.migrateLegacyRegistrationIfNeeded()
+        launchAtLogin.repairRegistrationIfNeeded()
         statusItem.setEnabled(preferences.showMenuBarIcon)
         monitor.start()
         refreshPermissions()

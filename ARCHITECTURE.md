@@ -63,8 +63,13 @@ contention is distinguishable from model latency.
   material is clipped to the capsule with no panel-edge shadow, so the
   surrounding panel corners remain fully transparent.
 - Manual launch and reopen present Settings.
-- `SMAppService.mainApp` registers launch at login. The login launch Apple event
-  suppresses Settings so startup remains invisible.
+- `SMAppService.loginItem` registers a tiny bundled helper in
+  `Contents/Library/LoginItems`. The helper launches the main app with an
+  explicit `--background` argument and without activation, then exits. This
+  keeps startup invisible without relying on timing-sensitive login Apple
+  events. Existing `SMAppService.mainApp` registrations are migrated in place,
+  and the helper registration follows the signed app when it is upgraded or
+  moved.
 
 ## Local data
 

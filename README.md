@@ -11,6 +11,9 @@ optional menu-bar icon can reopen Settings or quit. With the menu-bar icon off,
 dictation continues running invisibly. WhisprLocal stores raw and corrected
 text locally for recovery, but never stores microphone audio. The transient
 dictation overlay can be placed at six top or bottom screen positions.
+Launch at login uses a bundled, signed helper that starts the main app with an
+explicit background argument; manual opening remains the only path that shows
+Settings and the Dock icon.
 
 The microphone setting offers **System Default** and **Mac Microphone**.
 System Default follows macOS Sound settings, including AirPods. Mac Microphone

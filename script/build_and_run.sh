@@ -75,7 +75,9 @@ case "$mode" in
     lldb "$derived_data/Build/Products/Debug/WhisprLocal.app/Contents/MacOS/WhisprLocal"
     ;;
   log|logs)
-    /usr/bin/log stream --style compact --predicate 'process == "WhisprLocal"'
+    /usr/bin/log stream \
+      --style compact \
+      --predicate 'process == "WhisprLocal" || process == "WhisprLocalLoginHelper"'
     ;;
   telemetry)
     /usr/bin/log stream \
@@ -88,7 +90,7 @@ case "$mode" in
       --last "${2:-10m}" \
       --style compact \
       --info \
-      --predicate 'subsystem == "com.jasenguerra.whisprlocal" && (category == "AudioCapture" || category == "Transcription" || category == "Pipeline" || category == "Cleanup" || category == "LocalCleanup" || category == "LocalCleanupServer" || category == "Dictation" || category == "MediaPlayback" || category == "SoundEffects")'
+      --predicate '(subsystem == "com.jasenguerra.whisprlocal" && (category == "Lifecycle" || category == "AudioCapture" || category == "Transcription" || category == "Pipeline" || category == "Cleanup" || category == "LocalCleanup" || category == "LocalCleanupServer" || category == "Dictation" || category == "MediaPlayback" || category == "SoundEffects")) || subsystem == "com.jasenguerra.whisprlocal.loginhelper"'
     ;;
   test)
     generate_project
@@ -116,6 +118,14 @@ case "$mode" in
       "$media_runtime/mediaremote-adapter.pl" \
       "$media_framework" \
       state
+    login_helper="$app/Contents/Library/LoginItems/WhisprLocalLoginHelper.app"
+    codesign --verify --strict --verbose=2 "$login_helper"
+    /usr/libexec/PlistBuddy \
+      -c "Print :CFBundleIdentifier" \
+      "$login_helper/Contents/Info.plist"
+    /usr/libexec/PlistBuddy \
+      -c "Print :LSUIElement" \
+      "$login_helper/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c "Print :LSUIElement" "$app/Contents/Info.plist"
     ;;
   *)

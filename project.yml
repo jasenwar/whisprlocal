@@ -28,6 +28,8 @@ targets:
     dependencies:
       - package: SherpaRuntime
         product: SherpaRuntime
+      - target: WhisprLocalLoginHelper
+        link: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jasenguerra.whisprlocal
@@ -61,10 +63,29 @@ targets:
             ln -s Versions/Current/Resources "$framework/Resources"
           fi
     postBuildScripts:
+      - name: Embed login helper
+        basedOnDependencyAnalysis: false
+        script: |
+          source="$BUILT_PRODUCTS_DIR/WhisprLocalLoginHelper.app"
+          destination="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LoginItems/WhisprLocalLoginHelper.app"
+          if [[ ! -d "$source" ]]; then
+            echo "error: WhisprLocalLoginHelper.app was not built"
+            exit 1
+          fi
+          if [[ -d "$destination" ]]; then
+            mv "$destination" "$TARGET_TEMP_DIR/WhisprLocalLoginHelper-previous-$RANDOM.app"
+          fi
+          mkdir -p "$(dirname "$destination")"
+          /usr/bin/ditto "$source" "$destination"
       - name: Sign local runtimes
         basedOnDependencyAnalysis: false
         script: |
           identity="${EXPANDED_CODE_SIGN_IDENTITY:--}"
+
+          login_helper="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LoginItems/WhisprLocalLoginHelper.app"
+          if [[ -d "$login_helper" ]]; then
+            /usr/bin/codesign --force --sign "$identity" --options runtime --timestamp=none "$login_helper"
+          fi
 
           media_framework="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/MediaRemoteRuntime/MediaRemoteAdapter.framework"
           if [[ -d "$media_framework" ]]; then
@@ -78,6 +99,22 @@ targets:
             done
             /usr/bin/codesign --force --sign "$identity" --options runtime --timestamp=none "$runtime/llama-server"
           fi
+  WhisprLocalLoginHelper:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/WhisprLocalLoginHelper
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jasenguerra.whisprlocal.loginhelper
+        PRODUCT_NAME: WhisprLocalLoginHelper
+        INFOPLIST_FILE: Config/LoginHelper-Info.plist
+        ENABLE_HARDENED_RUNTIME: true
+        GENERATE_INFOPLIST_FILE: false
+        SKIP_INSTALL: true
+      configs:
+        Release:
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: false
   WhisprLocalTests:
     type: bundle.unit-test
     platform: macOS
