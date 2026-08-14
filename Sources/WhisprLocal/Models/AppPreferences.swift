@@ -23,6 +23,20 @@ enum OverlayPosition: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum IndicatorStyle: String, CaseIterable, Identifiable, Sendable {
+    case floatingPill
+    case notch
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .floatingPill: "Floating Pill"
+        case .notch: "Notch"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AppPreferences {
@@ -37,7 +51,16 @@ final class AppPreferences {
         static let cleanupEnabled = "cleanupEnabled"
         static let showMenuBarIcon = "showMenuBarIcon"
         static let overlayPosition = "overlayPosition"
+        static let indicatorStyle = "indicatorStyle"
         static let didShowCleanupWarning = "didShowCleanupWarning"
+        static let processingMode = "processingMode"
+        static let contextAwarenessLevel = "contextAwarenessLevel"
+        static let groqTranscriptionModel = "groqTranscriptionModel"
+        static let groqCleanupModel = "groqCleanupModel"
+        static let excludedContextBundleIdentifiers =
+            "excludedContextBundleIdentifiers"
+        static let customGroqCleanupPrompt = "customGroqCleanupPrompt"
+        static let customGroqContextPrompt = "customGroqContextPrompt"
     }
 
     private let defaults: UserDefaults
@@ -89,8 +112,70 @@ final class AppPreferences {
         didSet { defaults.set(overlayPosition.rawValue, forKey: Key.overlayPosition) }
     }
 
+    var indicatorStyle: IndicatorStyle {
+        didSet { defaults.set(indicatorStyle.rawValue, forKey: Key.indicatorStyle) }
+    }
+
     var didShowCleanupWarning: Bool {
         didSet { defaults.set(didShowCleanupWarning, forKey: Key.didShowCleanupWarning) }
+    }
+
+    var processingMode: ProcessingMode {
+        didSet { defaults.set(processingMode.rawValue, forKey: Key.processingMode) }
+    }
+
+    var contextAwarenessLevel: ContextAwarenessLevel {
+        didSet {
+            defaults.set(
+                contextAwarenessLevel.rawValue,
+                forKey: Key.contextAwarenessLevel
+            )
+        }
+    }
+
+    var groqTranscriptionModel: GroqTranscriptionModel {
+        didSet {
+            defaults.set(
+                groqTranscriptionModel.rawValue,
+                forKey: Key.groqTranscriptionModel
+            )
+        }
+    }
+
+    var groqCleanupModel: GroqCleanupModel {
+        didSet {
+            defaults.set(
+                groqCleanupModel.rawValue,
+                forKey: Key.groqCleanupModel
+            )
+        }
+    }
+
+    var excludedContextBundleIdentifiers: [String] {
+        didSet {
+            defaults.set(
+                excludedContextBundleIdentifiers,
+                forKey: Key.excludedContextBundleIdentifiers
+            )
+        }
+    }
+
+    var customGroqCleanupPrompt: String {
+        didSet {
+            defaults.set(
+                customGroqCleanupPrompt,
+                forKey: Key.customGroqCleanupPrompt
+            )
+        }
+    }
+
+    var customGroqContextPrompt: String {
+        didSet {
+            defaults.set(
+                customGroqContextPrompt,
+                forKey: Key.customGroqContextPrompt
+            )
+        }
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -104,7 +189,22 @@ final class AppPreferences {
             Key.cleanupEnabled: true,
             Key.showMenuBarIcon: false,
             Key.overlayPosition: OverlayPosition.topCenter.rawValue,
-            Key.didShowCleanupWarning: false
+            Key.indicatorStyle: IndicatorStyle.floatingPill.rawValue,
+            Key.didShowCleanupWarning: false,
+            Key.processingMode: ProcessingMode.groqPreferred.rawValue,
+            Key.contextAwarenessLevel:
+                ContextAwarenessLevel.focusedWindow.rawValue,
+            Key.groqTranscriptionModel:
+                GroqTranscriptionModel.whisperLargeV3.rawValue,
+            Key.groqCleanupModel: GroqCleanupModel.gptOSS20B.rawValue,
+            Key.excludedContextBundleIdentifiers: [
+                "com.1password.1password",
+                "com.agilebits.onepassword7",
+                "com.apple.Passwords",
+                "com.bitwarden.desktop",
+            ],
+            Key.customGroqCleanupPrompt: "",
+            Key.customGroqContextPrompt: "",
         ])
         autoPaste = defaults.bool(forKey: Key.autoPaste)
         keepLastDictationOnClipboard = defaults.bool(
@@ -122,6 +222,30 @@ final class AppPreferences {
         overlayPosition = OverlayPosition(
             rawValue: defaults.string(forKey: Key.overlayPosition) ?? ""
         ) ?? .topCenter
+        indicatorStyle = IndicatorStyle(
+            rawValue: defaults.string(forKey: Key.indicatorStyle) ?? ""
+        ) ?? .floatingPill
         didShowCleanupWarning = defaults.bool(forKey: Key.didShowCleanupWarning)
+        processingMode = ProcessingMode(
+            rawValue: defaults.string(forKey: Key.processingMode) ?? ""
+        ) ?? .groqPreferred
+        contextAwarenessLevel = ContextAwarenessLevel(
+            rawValue: defaults.string(forKey: Key.contextAwarenessLevel) ?? ""
+        ) ?? .focusedWindow
+        groqTranscriptionModel = GroqTranscriptionModel(
+            rawValue: defaults.string(forKey: Key.groqTranscriptionModel) ?? ""
+        ) ?? .whisperLargeV3
+        groqCleanupModel = GroqCleanupModel(
+            rawValue: defaults.string(forKey: Key.groqCleanupModel) ?? ""
+        ) ?? .gptOSS20B
+        excludedContextBundleIdentifiers = defaults.stringArray(
+            forKey: Key.excludedContextBundleIdentifiers
+        ) ?? []
+        customGroqCleanupPrompt = defaults.string(
+            forKey: Key.customGroqCleanupPrompt
+        ) ?? ""
+        customGroqContextPrompt = defaults.string(
+            forKey: Key.customGroqContextPrompt
+        ) ?? ""
     }
 }

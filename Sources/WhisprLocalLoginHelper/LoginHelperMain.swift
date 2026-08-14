@@ -21,7 +21,11 @@ enum LoginHelperMain {
 
 @MainActor
 private final class LoginHelperDelegate: NSObject, NSApplicationDelegate {
-    private static let mainBundleIdentifier = "com.jasenguerra.whisprlocal"
+    private static var mainBundleIdentifier: String {
+        Bundle.main.object(
+            forInfoDictionaryKey: "WhisprLocalMainBundleIdentifier"
+        ) as? String ?? "com.jasenguerra.whisprlocal"
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard NSRunningApplication.runningApplications(

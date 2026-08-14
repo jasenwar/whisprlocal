@@ -19,11 +19,18 @@ truth; the generated Xcode project is intentionally not committed.
 4. `DictationPipeline` runs detached from the main actor at user-initiated
    priority. It owns the complete transcription, cleanup, and snippet-expansion
    sequence so UI work cannot delay one stage from handing off to the next.
-5. `ParakeetTranscriptionEngine` calls sherpa-onnx v1.13.4 directly. Dictionary
-   terms and snippet triggers are SentencePiece-encoded and passed through the
-   per-stream hotword API with modified beam search and score 1.5.
-6. `LocalCleanupEngine` protects fragile values, then sends a deterministic
-   conservative-cleanup request to the pinned Qwen2.5 3B model.
+5. In Groq Preferred mode, `HybridTranscriptionEngine` sends the in-memory WAV
+   payload to Groq Whisper and falls back to `ParakeetTranscriptionEngine` when
+   the selected Groq path is unavailable or limited. Fully Local mode uses
+   Parakeet directly. Dictionary terms and snippet triggers are SentencePiece-
+   encoded and passed through Parakeet's per-stream hotword API with modified
+   beam search and score 1.5.
+6. `HybridCleanupEngine` first requests conservative cleanup from the selected
+   Groq model. Preservation failures get one independent Groq safety-model
+   attempt before `LocalCleanupEngine` takes over. Capability- and model-scoped
+   cooldowns prevent one Groq failure from disabling unrelated paths. The local
+   engine protects fragile values, then sends a deterministic request to the
+   pinned Qwen2.5 3B model.
    `LlamaServerController` owns one bundled, signed `llama-server` helper on a
    random loopback port with an ephemeral API key and strict request deadline.
    A deterministic preservation validator rejects deleted sentence boundaries
@@ -81,12 +88,18 @@ contention is distinguishable from model latency.
 
 ## Network boundary
 
-The only external application network calls are explicit user-initiated model
-downloads: the official Parakeet archive and the pinned Qwen2.5 GGUF file. Both
-are SHA-256 verified before installation. Normal dictation, cleanup,
-persistence, and paste have no external network path. Cleanup HTTP stays on
-`127.0.0.1`, bypasses system proxies, and the helper runs with offline mode and
-no web UI.
+Groq Preferred mode sends recorded audio to Groq for transcription and sends
+the transcript to Groq for cleanup. If context awareness is enabled, application
+metadata and selected text are included; Focused Window mode may also include
+an in-memory JPEG of only the focused window. Screenshots and microphone audio
+are never persisted. The user-provided Groq key is stored in macOS Keychain.
+
+Fully Local mode makes no runtime network requests after model setup. The only
+external requests in that mode are explicit user-initiated downloads of the
+official Parakeet archive and pinned Qwen2.5 GGUF file, both SHA-256 verified.
+Local cleanup HTTP stays on `127.0.0.1`, bypasses system proxies, and the helper
+runs with offline mode and no web UI. Persistence and paste never use a network
+path in either mode.
 
 ## Dependency reproducibility
 

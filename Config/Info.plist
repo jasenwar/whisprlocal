@@ -17,9 +17,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.9</string>
+    <string>0.2.0</string>
     <key>CFBundleVersion</key>
-    <string>27</string>
+    <string>28</string>
     <key>LSMinimumSystemVersion</key>
     <string>26.0</string>
     <key>LSUIElement</key>
@@ -27,7 +27,7 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>WhisprLocal records only while Globe/Fn is held to create a local transcript. Audio is discarded after processing.</string>
+    <string>WhisprLocal records only while Globe/Fn is held to create a transcript. Audio is discarded after processing.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

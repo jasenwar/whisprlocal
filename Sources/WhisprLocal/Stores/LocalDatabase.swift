@@ -6,7 +6,10 @@ actor LocalDatabase {
         let support = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        )[0].appending(path: "WhisprLocal", directoryHint: .isDirectory)
+        )[0].appending(
+            path: BuildFlavor.applicationSupportDirectoryName,
+            directoryHint: .isDirectory
+        )
         try? FileManager.default.createDirectory(
             at: support,
             withIntermediateDirectories: true

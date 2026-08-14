@@ -4,6 +4,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 derived_data="$repo_root/DerivedData"
 scheme="WhisprLocal"
+debug_app_name="WhisprLocal Hybrid Dev"
+debug_bundle_id="com.jasenguerra.whisprlocal.hybriddev"
 mode="${1:-run}"
 
 generate_project() {
@@ -26,20 +28,20 @@ build_app() {
 }
 
 stop_existing_app() {
-  if ! /usr/bin/pgrep -x "$scheme" >/dev/null; then
+  if ! /usr/bin/pgrep -x "$debug_app_name" >/dev/null; then
     return
   fi
 
   /usr/bin/osascript \
-    -e 'tell application id "com.jasenguerra.whisprlocal" to quit' \
+    -e "tell application id \"$debug_bundle_id\" to quit" \
     >/dev/null 2>&1 || true
   for _ in {1..20}; do
-    if ! /usr/bin/pgrep -x "$scheme" >/dev/null; then
+    if ! /usr/bin/pgrep -x "$debug_app_name" >/dev/null; then
       return
     fi
     /bin/sleep 0.05
   done
-  /usr/bin/pkill -x "$scheme" 2>/dev/null || true
+  /usr/bin/pkill -x "$debug_app_name" 2>/dev/null || true
 }
 
 case "$mode" in
@@ -67,12 +69,12 @@ case "$mode" in
   run)
     stop_existing_app
     build_app
-    open -n "$derived_data/Build/Products/Debug/WhisprLocal.app"
+    open -n "$derived_data/Build/Products/Debug/$debug_app_name.app"
     ;;
   debug)
     stop_existing_app
     build_app
-    lldb "$derived_data/Build/Products/Debug/WhisprLocal.app/Contents/MacOS/WhisprLocal"
+    lldb "$derived_data/Build/Products/Debug/$debug_app_name.app/Contents/MacOS/$debug_app_name"
     ;;
   log|logs)
     /usr/bin/log stream \
@@ -83,14 +85,14 @@ case "$mode" in
     /usr/bin/log stream \
       --style compact \
       --level info \
-      --predicate 'subsystem == "com.jasenguerra.whisprlocal" && (category == "AudioCapture" || category == "Transcription" || category == "Pipeline" || category == "Cleanup" || category == "LocalCleanup" || category == "LocalCleanupServer" || category == "Dictation" || category == "MediaPlayback" || category == "SoundEffects")'
+      --predicate 'subsystem == "com.jasenguerra.whisprlocal" && (category == "AudioCapture" || category == "Transcription" || category == "Pipeline" || category == "Cleanup" || category == "LocalCleanup" || category == "LocalCleanupServer" || category == "Dictation" || category == "MediaPlayback" || category == "SoundEffects" || category == "Groq" || category == "GroqContext" || category == "HybridEngine")'
     ;;
   diagnostics)
     /usr/bin/log show \
       --last "${2:-10m}" \
       --style compact \
       --info \
-      --predicate '(subsystem == "com.jasenguerra.whisprlocal" && (category == "Lifecycle" || category == "AudioCapture" || category == "Transcription" || category == "Pipeline" || category == "Cleanup" || category == "LocalCleanup" || category == "LocalCleanupServer" || category == "Dictation" || category == "MediaPlayback" || category == "SoundEffects")) || subsystem == "com.jasenguerra.whisprlocal.loginhelper"'
+      --predicate '(subsystem == "com.jasenguerra.whisprlocal" && (category == "Lifecycle" || category == "AudioCapture" || category == "Transcription" || category == "Pipeline" || category == "Cleanup" || category == "LocalCleanup" || category == "LocalCleanupServer" || category == "Dictation" || category == "MediaPlayback" || category == "SoundEffects" || category == "Groq" || category == "GroqContext" || category == "HybridEngine")) || subsystem == "com.jasenguerra.whisprlocal.loginhelper"'
     ;;
   test)
     generate_project
@@ -103,7 +105,7 @@ case "$mode" in
     ;;
   verify)
     build_app
-    app="$derived_data/Build/Products/Debug/WhisprLocal.app"
+    app="$derived_data/Build/Products/Debug/$debug_app_name.app"
     codesign --verify --deep --strict --verbose=2 "$app"
     codesign -d --entitlements - "$app"
     runtime="$app/Contents/Resources/LocalCleanupRuntime"

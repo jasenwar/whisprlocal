@@ -1,25 +1,60 @@
 import SwiftUI
 
+private enum SettingsDestination: String, CaseIterable, Identifiable {
+    case general
+    case intelligence
+    case testLab
+    case history
+    case dictionary
+    case snippets
+    case advanced
+    case about
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .intelligence: "Intelligence"
+        case .testLab: "Test Lab"
+        case .history: "History"
+        case .dictionary: "Dictionary"
+        case .snippets: "Snippets"
+        case .advanced: "Advanced"
+        case .about: "About"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: "gearshape"
+        case .intelligence: "sparkles"
+        case .testLab: "testtube.2"
+        case .history: "clock.arrow.circlepath"
+        case .dictionary: "text.book.closed"
+        case .snippets: "text.badge.plus"
+        case .advanced: "slider.horizontal.3"
+        case .about: "info.circle"
+        }
+    }
+}
+
 struct SettingsRootView: View {
     @Bindable var environment: AppEnvironment
+    @State private var selection: SettingsDestination? = .general
 
     var body: some View {
-        TabView {
-            GeneralSettingsView(environment: environment)
-                .tabItem { Label("General", systemImage: "gearshape") }
-            HistoryView(
-                store: environment.historyStore,
-                dictionaryStore: environment.dictionaryStore
-            )
-            .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
-            DictionaryView(store: environment.dictionaryStore)
-                .tabItem { Label("Dictionary", systemImage: "text.book.closed") }
-            SnippetsView(store: environment.snippetStore)
-                .tabItem { Label("Snippets", systemImage: "text.badge.plus") }
-            AboutView()
-                .tabItem { Label("About", systemImage: "info.circle") }
+        NavigationSplitView {
+            List(SettingsDestination.allCases, selection: $selection) { item in
+                Label(item.title, systemImage: item.symbol)
+                    .tag(item)
+            }
+            .navigationSplitViewColumnWidth(min: 180, ideal: 205, max: 240)
+        } detail: {
+            destinationView(selection ?? .general)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(14)
+        .navigationSplitViewStyle(.balanced)
         .alert(
             "Raw transcript used",
             isPresented: Binding(
@@ -32,6 +67,31 @@ struct SettingsRootView: View {
             }
         } message: {
             Text(environment.coordinator.warningMessage ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private func destinationView(_ destination: SettingsDestination) -> some View {
+        switch destination {
+        case .general:
+            GeneralSettingsView(environment: environment)
+        case .intelligence:
+            IntelligenceSettingsView(environment: environment)
+        case .testLab:
+            TestLabView(environment: environment)
+        case .history:
+            HistoryView(
+                store: environment.historyStore,
+                dictionaryStore: environment.dictionaryStore
+            )
+        case .dictionary:
+            DictionaryView(store: environment.dictionaryStore)
+        case .snippets:
+            SnippetsView(store: environment.snippetStore)
+        case .advanced:
+            AdvancedSettingsView(environment: environment)
+        case .about:
+            AboutView()
         }
     }
 }

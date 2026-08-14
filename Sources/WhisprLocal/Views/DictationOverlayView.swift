@@ -1,11 +1,63 @@
 import SwiftUI
 
+struct NotchOverlayLayout: Equatable {
+    static let fallback = NotchOverlayLayout(
+        width: 220,
+        topInset: 0,
+        dropDownHeight: 44
+    )
+
+    let width: CGFloat
+    let topInset: CGFloat
+    let dropDownHeight: CGFloat
+
+    init(
+        width: CGFloat,
+        topInset: CGFloat,
+        dropDownHeight: CGFloat = 38
+    ) {
+        self.width = max(180, width)
+        self.topInset = max(0, topInset)
+        self.dropDownHeight = max(32, dropDownHeight)
+    }
+
+    var size: CGSize {
+        CGSize(width: width, height: topInset + dropDownHeight)
+    }
+}
+
 struct DictationOverlayView: View {
-    static let contentSize = CGSize(width: 260, height: 56)
+    static let pillSize = CGSize(width: 260, height: 56)
+    static let contentSize = pillSize
 
     let state: DictationState
+    var style: IndicatorStyle = .floatingPill
+    var notchLayout: NotchOverlayLayout = .fallback
 
     var body: some View {
+        Group {
+            switch style {
+            case .floatingPill:
+                pill
+            case .notch:
+                notch
+            }
+        }
+        .frame(width: currentSize.width, height: currentSize.height)
+    }
+
+    static func size(
+        for style: IndicatorStyle,
+        notchLayout: NotchOverlayLayout = .fallback
+    ) -> CGSize {
+        style == .notch ? notchLayout.size : pillSize
+    }
+
+    private var currentSize: CGSize {
+        Self.size(for: style, notchLayout: notchLayout)
+    }
+
+    private var pill: some View {
         HStack(spacing: 12) {
             ZStack {
                 Circle()
@@ -24,12 +76,38 @@ struct DictationOverlayView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .frame(
-            width: Self.contentSize.width,
-            height: Self.contentSize.height
+            width: Self.pillSize.width,
+            height: Self.pillSize.height
         )
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.14)))
         .clipShape(Capsule())
+    }
+
+    private var notch: some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: notchLayout.topInset)
+            HStack(spacing: 9) {
+                Image(systemName: symbol)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(color)
+                Text(state.label)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: notchLayout.dropDownHeight)
+        }
+        .frame(width: notchLayout.width, height: notchLayout.size.height)
+        .background(
+            UnevenRoundedRectangle(
+                bottomLeadingRadius: 16,
+                bottomTrailingRadius: 16
+            )
+            .fill(.black)
+        )
     }
 
     private var color: Color {

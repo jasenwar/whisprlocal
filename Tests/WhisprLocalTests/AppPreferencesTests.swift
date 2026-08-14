@@ -32,6 +32,37 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(reloaded.overlayPosition, .bottomCenter)
     }
 
+    func testIndicatorDefaultsToFloatingPillAndPersistsNotchChoice() {
+        let suiteName = "WhisprLocalTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let preferences = AppPreferences(defaults: defaults)
+        XCTAssertEqual(preferences.indicatorStyle, .floatingPill)
+
+        preferences.indicatorStyle = .notch
+        let reloaded = AppPreferences(defaults: defaults)
+        XCTAssertEqual(reloaded.indicatorStyle, .notch)
+    }
+
+    func testHybridPreferencesDefaultToGroqPreferredAndPersistLocalMode() {
+        let suiteName = "WhisprLocalTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let preferences = AppPreferences(defaults: defaults)
+        XCTAssertEqual(preferences.processingMode, .groqPreferred)
+        XCTAssertEqual(preferences.contextAwarenessLevel, .focusedWindow)
+        XCTAssertEqual(preferences.groqTranscriptionModel, .whisperLargeV3)
+        XCTAssertEqual(preferences.groqCleanupModel, .gptOSS20B)
+
+        preferences.processingMode = .fullyLocal
+        preferences.contextAwarenessLevel = .off
+        let reloaded = AppPreferences(defaults: defaults)
+        XCTAssertEqual(reloaded.processingMode, .fullyLocal)
+        XCTAssertEqual(reloaded.contextAwarenessLevel, .off)
+    }
+
     func testPauseMediaDefaultsOnAndPersists() {
         let suiteName = "WhisprLocalTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -108,6 +139,25 @@ final class AppPreferencesTests: XCTestCase {
 
         XCTAssertEqual(origin.x, 580)
         XCTAssertEqual(origin.y, 92)
+    }
+
+    func testNotchLayoutBridgesPhysicalNotchBeforeDropDown() {
+        let layout = NotchOverlayLayout(
+            width: 185,
+            topInset: 33
+        )
+
+        XCTAssertEqual(layout.width, 185)
+        XCTAssertEqual(layout.topInset, 33)
+        XCTAssertEqual(layout.dropDownHeight, 38)
+        XCTAssertEqual(layout.size, CGSize(width: 185, height: 71))
+        XCTAssertEqual(
+            DictationOverlayView.size(
+                for: .notch,
+                notchLayout: layout
+            ),
+            layout.size
+        )
     }
 
     func testOverlayReusesOneHostingControllerAcrossStateChanges() {

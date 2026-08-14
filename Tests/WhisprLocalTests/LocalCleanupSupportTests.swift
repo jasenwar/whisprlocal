@@ -159,6 +159,32 @@ final class LocalCleanupSupportTests: XCTestCase {
         )
     }
 
+    func testPreservationAssessmentExplainsSafeMergeAndContentLoss() {
+        let safeMerge = TranscriptPreservationValidator.assess(
+            original: "Please send the report. Then restart the server.",
+            cleaned: "Please send the report, then restart the server."
+        )
+        XCTAssertTrue(safeMerge.isAccepted)
+        XCTAssertNil(safeMerge.rejectionReason)
+        XCTAssertEqual(safeMerge.originalSentenceCount, 2)
+        XCTAssertEqual(safeMerge.cleanedSentenceCount, 1)
+        XCTAssertEqual(safeMerge.missingSignificantTokenCount, 0)
+
+        let contentLoss = TranscriptPreservationValidator.assess(
+            original: "Could this be made better? What do you think based off the logs and testing?",
+            cleaned: "What do you think based off the logs and testing?"
+        )
+        XCTAssertFalse(contentLoss.isAccepted)
+        XCTAssertEqual(contentLoss.rejectionReason, .sentenceCountDropped)
+        XCTAssertEqual(contentLoss.originalSentenceCount, 2)
+        XCTAssertEqual(contentLoss.cleanedSentenceCount, 1)
+        XCTAssertGreaterThanOrEqual(
+            contentLoss.missingSignificantTokenCount,
+            2
+        )
+        XCTAssertLessThan(contentLoss.retainedTokenRatio, 0.8)
+    }
+
     func testTranscriptProtectorRestoresDictionaryAndFragileValues() throws {
         let input = """
         email Jasen.Guerra@example.com about Azure VM v2.4.1 at 10:30 AM on \
