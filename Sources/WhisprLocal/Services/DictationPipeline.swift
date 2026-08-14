@@ -12,7 +12,26 @@ struct DictationPipelineRequest: Sendable {
     let dictionary: [String]
     let snippets: [Snippet]
     let cleanupEnabled: Bool
+    let contextTask: Task<DictationContext?, Never>?
     let cleanupWarmupTask: Task<Void, Never>?
+
+    init(
+        samples: [Float],
+        hotwords: [String],
+        dictionary: [String],
+        snippets: [Snippet],
+        cleanupEnabled: Bool,
+        contextTask: Task<DictationContext?, Never>? = nil,
+        cleanupWarmupTask: Task<Void, Never>?
+    ) {
+        self.samples = samples
+        self.hotwords = hotwords
+        self.dictionary = dictionary
+        self.snippets = snippets
+        self.cleanupEnabled = cleanupEnabled
+        self.contextTask = contextTask
+        self.cleanupWarmupTask = cleanupWarmupTask
+    }
 }
 
 struct DictationPipelineProgress: Sendable {
@@ -84,11 +103,15 @@ struct DictationPipeline: Sendable {
                 "Pipeline cleanup started: endToEndDeadline=\(cleanupDeadline.timeInterval, format: .fixed(precision: 3), privacy: .public)s warmupPending=\(request.cleanupWarmupTask != nil, privacy: .public)"
             )
             do {
+                let context = await contextForCleanup(
+                    from: request.contextTask
+                )
                 corrected = try await BoundedCleanupExecutor.correct(
                     using: cleanupEngine,
                     warmupTask: request.cleanupWarmupTask,
                     text: transcript.text,
                     dictionary: request.dictionary,
+                    context: context,
                     timeout: cleanupDeadline
                 )
                 let cleanupSeconds = (
@@ -97,8 +120,7 @@ struct DictationPipeline: Sendable {
                 dictationPipelineLogger.info(
                     "Pipeline received cleanup result in \(cleanupSeconds, format: .fixed(precision: 3), privacy: .public)s"
                 )
-                cleanupIdentifier =
-                    LocalCleanupModelManifest.production.displayName
+                cleanupIdentifier = await cleanupEngine.lastEngineIdentifier()
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -128,5 +150,24 @@ struct DictationPipeline: Sendable {
             startedAt: startedAt,
             completedAt: completedAt
         )
+    }
+
+    private func contextForCleanup(
+        from task: Task<DictationContext?, Never>?
+    ) async -> DictationContext? {
+        guard let task else { return nil }
+        do {
+            return try await DetachedDeadline.run(
+                timeout: .milliseconds(400)
+            ) {
+                await task.value
+            }
+        } catch {
+            task.cancel()
+            dictationPipelineLogger.info(
+                "Context was not ready within 0.4s; continuing without it"
+            )
+            return nil
+        }
     }
 }

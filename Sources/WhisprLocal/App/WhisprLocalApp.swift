@@ -7,7 +7,7 @@ struct WhisprLocalApp: App {
     var body: some Scene {
         Settings {
             SettingsRootView(environment: AppEnvironment.shared)
-                .frame(minWidth: 720, minHeight: 520)
+                .frame(minWidth: 900, minHeight: 620)
         }
         .commands {
             CommandGroup(replacing: .appSettings) {

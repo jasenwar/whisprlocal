@@ -15,8 +15,9 @@ extension SMAppService: LoginItemServiceControlling {}
 @MainActor
 @Observable
 final class LaunchAtLoginService {
-    static let helperBundleIdentifier =
-        "com.jasenguerra.whisprlocal.loginhelper"
+    static var helperBundleIdentifier: String {
+        BuildFlavor.loginHelperBundleIdentifier
+    }
     private static let registrationFingerprintKey =
         "loginItemRegistrationFingerprint"
 

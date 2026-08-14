@@ -30,10 +30,12 @@ targets:
         product: SherpaRuntime
       - target: WhisprLocalLoginHelper
         link: false
+        embed: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jasenguerra.whisprlocal
         PRODUCT_NAME: WhisprLocal
+        PRODUCT_MODULE_NAME: WhisprLocal
         INFOPLIST_FILE: Config/Info.plist
         CODE_SIGN_ENTITLEMENTS: Config/WhisprLocal.entitlements
         ENABLE_HARDENED_RUNTIME: true
@@ -43,7 +45,12 @@ targets:
           - "-lc++"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.jasenguerra.whisprlocal.hybriddev
+          PRODUCT_NAME: WhisprLocal Hybrid Dev
+          LOGIN_HELPER_PRODUCT_NAME: WhisprLocal Hybrid Dev LoginHelper
         Release:
+          LOGIN_HELPER_PRODUCT_NAME: WhisprLocalLoginHelper
           CODE_SIGN_INJECT_BASE_ENTITLEMENTS: false
     preBuildScripts:
       - name: Build MediaRemote adapter
@@ -66,7 +73,7 @@ targets:
       - name: Embed login helper
         basedOnDependencyAnalysis: false
         script: |
-          source="$BUILT_PRODUCTS_DIR/WhisprLocalLoginHelper.app"
+          source="$BUILT_PRODUCTS_DIR/$LOGIN_HELPER_PRODUCT_NAME.app"
           destination="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LoginItems/WhisprLocalLoginHelper.app"
           if [[ ! -d "$source" ]]; then
             echo "error: WhisprLocalLoginHelper.app was not built"
@@ -113,7 +120,12 @@ targets:
         GENERATE_INFOPLIST_FILE: false
         SKIP_INSTALL: true
       configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.jasenguerra.whisprlocal.hybriddev.loginhelper
+          PRODUCT_NAME: WhisprLocal Hybrid Dev LoginHelper
+          MAIN_APP_BUNDLE_IDENTIFIER: com.jasenguerra.whisprlocal.hybriddev
         Release:
+          MAIN_APP_BUNDLE_IDENTIFIER: com.jasenguerra.whisprlocal
           CODE_SIGN_INJECT_BASE_ENTITLEMENTS: false
   WhisprLocalTests:
     type: bundle.unit-test
@@ -134,6 +146,13 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: LWHJ76XFS5
         CODE_SIGN_IDENTITY: Apple Development
+      configs:
+        Debug:
+          TEST_HOST: "$(BUILT_PRODUCTS_DIR)/WhisprLocal Hybrid Dev.app/Contents/MacOS/WhisprLocal Hybrid Dev"
+          BUNDLE_LOADER: "$(TEST_HOST)"
+        Release:
+          TEST_HOST: "$(BUILT_PRODUCTS_DIR)/WhisprLocal.app/Contents/MacOS/WhisprLocal"
+          BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:
   WhisprLocal:
     build:

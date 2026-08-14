@@ -1,5 +1,23 @@
 import Foundation
 
+struct TranscriptPreservationAssessment: Equatable, Sendable {
+    enum RejectionReason: String, Equatable, Sendable {
+        case sentenceCountDropped = "sentence_count_dropped"
+        case tokenRetentionTooLow = "token_retention_too_low"
+    }
+
+    let rejectionReason: RejectionReason?
+    let originalSentenceCount: Int
+    let cleanedSentenceCount: Int
+    let originalSignificantTokenCount: Int
+    let retainedSignificantTokenCount: Int
+    let missingSignificantTokenCount: Int
+    let retainedTokenRatio: Double
+    let containsCorrectionMarker: Bool
+
+    var isAccepted: Bool { rejectionReason == nil }
+}
+
 enum TranscriptPreservationValidator {
     private static let ignoredTokens: Set<String> = [
         "a", "an", "and", "are", "as", "at", "be", "been", "being", "but",
@@ -24,10 +42,17 @@ enum TranscriptPreservationValidator {
         original: String,
         cleaned: String
     ) throws {
-        guard explicitSentenceCount(in: cleaned)
-                >= explicitSentenceCount(in: original) else {
+        guard assess(original: original, cleaned: cleaned).isAccepted else {
             throw LocalCleanupValidationError.meaningChanged
         }
+    }
+
+    static func assess(
+        original: String,
+        cleaned: String
+    ) -> TranscriptPreservationAssessment {
+        let originalSentenceCount = explicitSentenceCount(in: original)
+        let cleanedSentenceCount = explicitSentenceCount(in: cleaned)
 
         let normalizedOriginal = " "
             + original.lowercased()
@@ -36,23 +61,49 @@ enum TranscriptPreservationValidator {
                 .split(whereSeparator: \.isWhitespace)
                 .joined(separator: " ")
             + " "
-        guard !correctionMarkers.contains(where: {
+        let containsCorrectionMarker = correctionMarkers.contains(where: {
             normalizedOriginal.contains($0)
-        }) else {
-            return
-        }
+        })
 
         let originalTokens = significantTokens(in: original)
-        guard originalTokens.count >= 5 else { return }
         let cleanedTokens = significantTokens(in: cleaned)
         let retainedCount = originalTokens.intersection(cleanedTokens).count
         let missingCount = originalTokens.count - retainedCount
-        let retainedRatio =
-            Double(retainedCount) / Double(originalTokens.count)
+        let retainedRatio = originalTokens.isEmpty
+            ? 1
+            : Double(retainedCount) / Double(originalTokens.count)
 
-        guard missingCount < 2 || retainedRatio >= 0.8 else {
-            throw LocalCleanupValidationError.meaningChanged
+        let sentenceCountDropped =
+            cleanedSentenceCount < originalSentenceCount
+        let highConfidenceSentenceMerge =
+            missingCount <= 1 && retainedRatio >= 0.95
+        let tokenRetentionTooLow =
+            originalTokens.count >= 5
+            && missingCount >= 2
+            && retainedRatio < 0.8
+
+        let rejectionReason:
+            TranscriptPreservationAssessment.RejectionReason?
+        if !containsCorrectionMarker,
+           sentenceCountDropped,
+           !highConfidenceSentenceMerge {
+            rejectionReason = .sentenceCountDropped
+        } else if !containsCorrectionMarker, tokenRetentionTooLow {
+            rejectionReason = .tokenRetentionTooLow
+        } else {
+            rejectionReason = nil
         }
+
+        return TranscriptPreservationAssessment(
+            rejectionReason: rejectionReason,
+            originalSentenceCount: originalSentenceCount,
+            cleanedSentenceCount: cleanedSentenceCount,
+            originalSignificantTokenCount: originalTokens.count,
+            retainedSignificantTokenCount: retainedCount,
+            missingSignificantTokenCount: missingCount,
+            retainedTokenRatio: retainedRatio,
+            containsCorrectionMarker: containsCorrectionMarker
+        )
     }
 
     private static func significantTokens(in text: String) -> Set<String> {

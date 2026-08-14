@@ -158,6 +158,10 @@ actor LocalCleanupEngine: CleanupEngine {
         await transport.shutdown()
     }
 
+    func lastEngineIdentifier() async -> String {
+        LocalCleanupModelManifest.production.displayName
+    }
+
     private func scheduleIdleShutdown() {
         idleShutdownTask?.cancel()
         idleShutdownTask = Task { [transport] in
@@ -203,6 +207,7 @@ enum BoundedCleanupExecutor {
         warmupTask: Task<Void, Never>?,
         text: String,
         dictionary: [String],
+        context: DictationContext? = nil,
         timeout: Duration
     ) async throws -> String {
         do {
@@ -211,7 +216,8 @@ enum BoundedCleanupExecutor {
                 try Task.checkCancellation()
                 return try await engine.correct(
                     text: text,
-                    dictionary: dictionary
+                    dictionary: dictionary,
+                    context: context
                 )
             }
         } catch WhisprLocalError.cleanupTimedOut {

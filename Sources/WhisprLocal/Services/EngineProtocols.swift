@@ -13,15 +13,30 @@ protocol TranscriptionEngine: Sendable {
 
 protocol CleanupEngine: Sendable {
     func correct(text: String, dictionary: [String]) async throws -> String
+    func correct(
+        text: String,
+        dictionary: [String],
+        context: DictationContext?
+    ) async throws -> String
     func prewarm() async
     func abortPendingWork() async
     func shutdown() async
+    func lastEngineIdentifier() async -> String
 }
 
 extension CleanupEngine {
+    func correct(
+        text: String,
+        dictionary: [String],
+        context: DictationContext?
+    ) async throws -> String {
+        try await correct(text: text, dictionary: dictionary)
+    }
+
     func prewarm() async {}
     func abortPendingWork() async {}
     func shutdown() async {}
+    func lastEngineIdentifier() async -> String { "Cleanup" }
 }
 
 enum WhisprLocalError: LocalizedError {

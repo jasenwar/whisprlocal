@@ -1,12 +1,15 @@
 # WhisprLocal
 
-WhisprLocal is a privacy-first, fully local macOS dictation utility. Hold Globe/Fn,
-speak, and release to transcribe with Parakeet Unified English, conservatively
-clean the text with a pinned on-device Qwen2.5 3B model, and paste it into the
-application that was already focused. Cleanup can be disabled independently.
+WhisprLocal is a privacy-first hybrid macOS dictation utility. Hold Globe/Fn,
+speak, and release to transcribe, conservatively clean the text, and paste it
+into the application that was already focused. Groq Preferred mode uses Groq
+for fast Whisper transcription and grammar cleanup, with the original local
+Parakeet and Qwen pipeline as an automatic fallback. Fully Local mode keeps
+audio and text on the Mac. Cleanup can be disabled independently.
 
-The application has no account system, billing, cloud API, analytics, updater,
-or Docker service. Its Dock icon appears only while Settings is open, and an
+The application has no account system, billing, analytics, updater, or Docker
+service. Groq access uses an API key that you supply and that macOS stores in
+Keychain. Its Dock icon appears only while Settings is open, and an
 optional menu-bar icon can reopen Settings or quit. With the menu-bar icon off,
 dictation continues running invisibly. WhisprLocal stores raw and corrected
 text locally for recovery, but never stores microphone audio. The transient
@@ -14,6 +17,12 @@ dictation overlay can be placed at six top or bottom screen positions.
 Launch at login uses a bundled, signed helper that starts the main app with an
 explicit background argument; manual opening remains the only path that shows
 Settings and the Dock icon.
+
+Optional context awareness can send the focused application's name, window
+title, and selected text to Groq. Focused Window mode can also send a temporary
+image of only that window. The image stays in memory for the current request
+and is never saved. Test Lab previews both cleanup and context behavior without
+pasting or creating history.
 
 The microphone setting offers **System Default** and **Mac Microphone**.
 System Default follows macOS Sound settings, including AirPods. Mac Microphone
@@ -35,6 +44,8 @@ queries and unsafe play/pause toggles.
 - Apple-silicon Mac running macOS 26 or newer
 - Xcode 26 or newer
 - Microphone and Accessibility permissions
+- Screen Recording permission only when Focused Window context is enabled
+- A Groq API key for Groq Preferred mode; Fully Local works without one
 
 ## Install
 
@@ -64,14 +75,22 @@ distribution.
 
 The first run clones existing Parakeet and local-cleanup model caches when
 available. Otherwise, Model Setup in Settings downloads and verifies the
-official model files. The cleanup model is a separate 2.1 GB download.
+official model files. The cleanup model is a separate 2.1 GB download. Keeping
+both models installed makes the local fallback immediate.
 
 ## Privacy
 
-After explicit model setup, dictation and cleanup run offline. The local
-cleanup helper listens only on a random loopback port, requires an ephemeral
-API key, disables its web UI and network model access, and is terminated when
-WhisprLocal quits. The local database is stored at:
+In Groq Preferred mode, recorded audio is sent to Groq for transcription. When
+cleanup is enabled, the transcript and any enabled application context are
+also sent to Groq. Focused-window images are temporary and are never written to
+disk. The Groq key is stored in macOS Keychain, not in the app database or
+preferences.
+
+Fully Local mode makes no runtime network requests after explicit model setup.
+Its cleanup helper listens only on a random loopback port, requires an
+ephemeral API key, disables its web UI and network model access, and is
+terminated when WhisprLocal quits. Local fallback follows the same boundary.
+The local database is stored at:
 
 `~/Library/Application Support/WhisprLocal/whisprlocal.sqlite`
 

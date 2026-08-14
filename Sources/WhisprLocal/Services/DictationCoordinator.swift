@@ -31,11 +31,13 @@ final class DictationCoordinator {
     private let permissions: any DictationPermissionChecking
     private let mediaPlayback: any MediaPlaybackControlling
     private let soundPlayer: SoundEffectPlayer?
+    private let contextService: GroqContextService?
     private var targetApplication: NSRunningApplication?
     private var capturePreparationTask: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?
     private var transcriptionWarmupTask: Task<Void, Never>?
     private var cleanupWarmupTask: Task<Void, Never>?
+    private var contextPreparationTask: Task<DictationContext?, Never>?
     private var mediaPauseTask: Task<Void, Never>?
     private var readyCueTask: Task<Void, Never>?
     private var recordingToken = UUID()
@@ -53,7 +55,8 @@ final class DictationCoordinator {
         preferences: AppPreferences,
         permissions: any DictationPermissionChecking,
         mediaPlayback: any MediaPlaybackControlling,
-        soundPlayer: SoundEffectPlayer?
+        soundPlayer: SoundEffectPlayer?,
+        contextService: GroqContextService? = nil
     ) {
         self.audio = audio
         self.transcriptionEngine = transcriptionEngine
@@ -71,6 +74,7 @@ final class DictationCoordinator {
         self.permissions = permissions
         self.mediaPlayback = mediaPlayback
         self.soundPlayer = soundPlayer
+        self.contextService = contextService
     }
 
     func beginListening() {
@@ -79,6 +83,7 @@ final class DictationCoordinator {
         recordingToken = UUID()
         let token = recordingToken
         listeningRequestedAt = .now
+        startContextPreparation()
         dictationLogger.info("Fn press received; preparing capture")
         transition(to: .preparing)
         capturePreparationTask = Task { [weak self] in
@@ -98,6 +103,8 @@ final class DictationCoordinator {
             )
             capturePreparationTask?.cancel()
             capturePreparationTask = nil
+            contextPreparationTask?.cancel()
+            contextPreparationTask = nil
             Task { [audio] in await audio.cancel() }
             endMediaPause(for: recordingToken)
             transition(to: .cancelled)
@@ -116,6 +123,8 @@ final class DictationCoordinator {
         let snippets = snippetStore.snippets
         let cleanupEnabled = preferences.cleanupEnabled
         let cleanupWarmup = cleanupWarmupTask
+        let contextTask = contextPreparationTask
+        contextPreparationTask = nil
         cleanupWarmupTask = nil
         transcriptionWarmupTask = nil
         let pipeline = pipeline
@@ -131,6 +140,7 @@ final class DictationCoordinator {
                 dictionary: dictionary,
                 snippets: snippets,
                 cleanupEnabled: cleanupEnabled,
+                contextTask: contextTask,
                 cleanupWarmupTask: cleanupWarmup
             )
             do {
@@ -167,6 +177,8 @@ final class DictationCoordinator {
         capturePreparationTask = nil
         processingTask?.cancel()
         processingTask = nil
+        contextPreparationTask?.cancel()
+        contextPreparationTask = nil
         readyCueTask?.cancel()
         Task { [audio] in await audio.cancel() }
         endMediaPause(for: recordingToken)
@@ -297,6 +309,8 @@ final class DictationCoordinator {
         Task { [audio] in await audio.cancel() }
         capturePreparationTask?.cancel()
         capturePreparationTask = nil
+        contextPreparationTask?.cancel()
+        contextPreparationTask = nil
         readyCueTask?.cancel()
         endMediaPause(for: recordingToken)
         transition(to: .failed(message))
@@ -452,6 +466,27 @@ final class DictationCoordinator {
                     "Cleanup warmup finished in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
                 )
             }
+        }
+    }
+
+    private func startContextPreparation() {
+        contextPreparationTask?.cancel()
+        contextPreparationTask = nil
+        guard preferences.processingMode == .groqPreferred,
+              preferences.contextAwarenessLevel != .off,
+              let contextService else {
+            return
+        }
+
+        let level = preferences.contextAwarenessLevel
+        let exclusions = preferences.excludedContextBundleIdentifiers
+        let customPrompt = preferences.customGroqContextPrompt
+        contextPreparationTask = Task {
+            await contextService.prepare(
+                level: level,
+                excludedBundleIdentifiers: exclusions,
+                customPrompt: customPrompt
+            )
         }
     }
 

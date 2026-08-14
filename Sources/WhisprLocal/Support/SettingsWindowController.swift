@@ -9,12 +9,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     private init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 980, height: 680),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "WhisprLocal Settings"
+        window.titlebarAppearsTransparent = true
+        window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.center()
@@ -33,7 +35,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     func present() {
         NSApp.setActivationPolicy(.regular)
         AppEnvironment.shared.refreshPermissions()
-        showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         startPermissionRefresh()
@@ -48,6 +49,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         permissionRefreshTask?.cancel()
         permissionRefreshTask = nil
         NSApp.setActivationPolicy(.accessory)
+    }
+
+    func runContextTestWithSettingsHidden() async {
+        window?.orderOut(nil)
+        NSApp.hide(nil)
+        try? await Task.sleep(for: .milliseconds(450))
+        await AppEnvironment.shared.runContextTest()
+        NSApp.unhide(nil)
+        present()
     }
 
     private func startPermissionRefresh() {

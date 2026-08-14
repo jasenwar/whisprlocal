@@ -12,17 +12,9 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Hold to talk") {
-                LabeledContent("Shortcut") {
-                    Text("Hold Globe/Fn")
-                }
-                Text("Pressing any other key while Fn is held cancels recording, so normal Fn shortcuts continue to work.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Picker(
-                    "Microphone",
-                    selection: $preferences.microphoneMode
-                ) {
+            Section("Hold to Talk") {
+                LabeledContent("Shortcut", value: "Hold Globe/Fn")
+                Picker("Microphone", selection: $preferences.microphoneMode) {
                     Text("System Default").tag(MicrophoneMode.systemDefault)
                     Text(
                         AudioInputDeviceResolver.builtInInputDeviceName()
@@ -30,11 +22,7 @@ struct GeneralSettingsView: View {
                     )
                     .tag(MicrophoneMode.builtIn)
                 }
-                Text(
-                    preferences.microphoneMode == .systemDefault
-                        ? "Follows macOS Sound settings, including AirPods. Bluetooth microphones need a brief connection delay before recording can begin."
-                        : "Uses the Mac’s built-in microphone even while audio plays through AirPods. This is the fastest and most reliable option."
-                )
+                Text(microphoneDetail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Toggle(
@@ -43,17 +31,15 @@ struct GeneralSettingsView: View {
                 )
                 HStack {
                     Toggle(
-                        "Play optional start and stop sounds",
+                        "Play start and stop sounds",
                         isOn: $preferences.sounds
                     )
                     Spacer()
-                    Button("Test start sound") {
-                        environment.playReadySoundPreview()
-                    }
+                    Button("Preview") { environment.playReadySoundPreview() }
                 }
-                Text("The floating overlay is the recording indicator. Sounds are off by default and do not control when recording begins.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            }
+
+            Section("Pasting") {
                 Toggle("Paste automatically", isOn: $preferences.autoPaste)
                 Toggle(
                     "Keep last dictation on clipboard",
@@ -62,19 +48,8 @@ struct GeneralSettingsView: View {
                 .disabled(!preferences.autoPaste)
                 Text(
                     preferences.keepLastDictationOnClipboard
-                        ? "The final corrected text remains available to paste again."
-                        : "Your previous clipboard contents are restored after pasting."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                Toggle(
-                    "Conservative local grammar cleanup",
-                    isOn: $preferences.cleanupEnabled
-                )
-                Text(
-                    preferences.cleanupEnabled
-                        ? "Uses the on-device Qwen2.5 model. If cleanup misses its deadline, the raw transcript is pasted immediately."
-                        : "Cleanup is disabled. WhisprLocal will paste the raw Parakeet transcript."
+                        ? "The final text stays on the clipboard so you can paste it again."
+                        : "Your prior clipboard contents are restored after the automatic paste."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -93,6 +68,27 @@ struct GeneralSettingsView: View {
                 )
             }
 
+            Section("Indicator") {
+                Picker("Style", selection: $preferences.indicatorStyle) {
+                    ForEach(IndicatorStyle.allCases) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                Picker("Pill position", selection: $preferences.overlayPosition) {
+                    ForEach(OverlayPosition.allCases) { position in
+                        Text(position.title).tag(position)
+                    }
+                }
+                .disabled(preferences.indicatorStyle == .notch)
+                Text(
+                    preferences.indicatorStyle == .notch
+                        ? "The indicator extends directly below the built-in display notch."
+                        : "The proven floating pill remains the default and can be placed anywhere along the screen edge."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
             Section("Visibility") {
                 Toggle(
                     "Show WhisprLocal in the menu bar",
@@ -103,79 +99,9 @@ struct GeneralSettingsView: View {
                         }
                     )
                 )
-                Picker("Overlay position", selection: $preferences.overlayPosition) {
-                    ForEach(OverlayPosition.allCases) { position in
-                        Text(position.title).tag(position)
-                    }
-                }
-                Text("The Dock icon appears while Settings is open. With the menu-bar icon off, dictation continues running invisibly.")
+                Text("WhisprLocal keeps working invisibly when Settings is closed and the menu-bar icon is off. The Dock icon appears only while Settings is open.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            Section("Local model") {
-                HStack {
-                    Label(
-                        environment.modelStatus.isReady
-                            ? "Parakeet Unified English is ready"
-                            : "Parakeet model is missing",
-                        systemImage: environment.modelStatus.isReady
-                            ? "checkmark.circle.fill"
-                            : "arrow.down.circle"
-                    )
-                    .foregroundStyle(environment.modelStatus.isReady ? .green : .primary)
-                    Spacer()
-                    if !environment.modelStatus.isReady {
-                        Button("Download and verify") {
-                            environment.downloadModel()
-                        }
-                        .disabled(environment.setupProgress != nil)
-                    }
-                }
-                if let progress = environment.setupProgress {
-                    ProgressView(value: progress)
-                }
-                if let message = environment.setupMessage {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("Cleanup model") {
-                HStack {
-                    Label(
-                        environment.cleanupModelStatus.isReady
-                            ? "Qwen2.5 3B local cleanup is ready"
-                            : "Local cleanup model is missing",
-                        systemImage: environment.cleanupModelStatus.isReady
-                            ? "checkmark.circle.fill"
-                            : "arrow.down.circle"
-                    )
-                    .foregroundStyle(
-                        environment.cleanupModelStatus.isReady ? .green : .primary
-                    )
-                    Spacer()
-                    if !environment.cleanupModelStatus.isReady {
-                        Button("Download and verify") {
-                            environment.downloadCleanupModel()
-                        }
-                        .disabled(environment.cleanupSetupProgress != nil)
-                    }
-                }
-                if let progress = environment.cleanupSetupProgress {
-                    ProgressView(value: progress)
-                }
-                if let message = environment.cleanupSetupMessage {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Text(
-                    "Runs entirely on this Mac through the bundled llama.cpp helper. Model download: 2.1 GB."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
 
             Section("Startup") {
@@ -184,12 +110,7 @@ struct GeneralSettingsView: View {
                     isOn: Binding(
                         get: { environment.launchAtLogin.isEnabled },
                         set: { enabled in
-                            do {
-                                try environment.launchAtLogin.setEnabled(enabled)
-                                launchError = nil
-                            } catch {
-                                launchError = error.localizedDescription
-                            }
+                            setLaunchAtLogin(enabled)
                         }
                     )
                 )
@@ -199,14 +120,36 @@ struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .navigationTitle("General")
         .onAppear {
             environment.refreshPermissions()
             environment.launchAtLogin.refresh()
         }
-        .alert("Startup setting failed", isPresented: .constant(launchError != nil)) {
+        .alert(
+            "Startup setting failed",
+            isPresented: Binding(
+                get: { launchError != nil },
+                set: { if !$0 { launchError = nil } }
+            )
+        ) {
             Button("OK") { launchError = nil }
         } message: {
             Text(launchError ?? "")
+        }
+    }
+
+    private var microphoneDetail: String {
+        preferences.microphoneMode == .systemDefault
+            ? "Follows macOS Sound settings, including AirPods. Bluetooth microphones can take a moment to switch into recording mode."
+            : "Uses the Mac’s built-in microphone even while audio plays through AirPods. This is the fastest and most reliable option."
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            try environment.launchAtLogin.setEnabled(enabled)
+            launchError = nil
+        } catch {
+            launchError = error.localizedDescription
         }
     }
 
@@ -219,7 +162,9 @@ struct GeneralSettingsView: View {
         HStack {
             Label(
                 title,
-                systemImage: granted ? "checkmark.circle.fill" : "exclamationmark.triangle"
+                systemImage: granted
+                    ? "checkmark.circle.fill"
+                    : "exclamationmark.triangle"
             )
             .foregroundStyle(granted ? .green : .orange)
             Spacer()
