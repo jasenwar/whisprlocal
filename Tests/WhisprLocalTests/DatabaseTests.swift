@@ -26,6 +26,26 @@ final class DatabaseTests: XCTestCase {
         XCTAssertEqual(snippets.map(\.trigger), ["my email"])
     }
 
+    func testMultilineSnippetRoundTripsAndExpandsWithoutLosingFormatting() async throws {
+        let database = try LocalDatabase(path: temporaryDatabasePath())
+        let replacement = """
+        Thanks,
+        Jasen
+        """
+        try await database.addSnippet(
+            trigger: "whisper signature",
+            replacement: replacement
+        )
+
+        let snippets = try await database.snippets()
+        XCTAssertEqual(snippets.count, 1)
+        XCTAssertEqual(snippets[0].replacement, replacement)
+        XCTAssertEqual(
+            SnippetExpander.expand("Use whisper signature", snippets: snippets),
+            "Use Thanks,\nJasen"
+        )
+    }
+
     func testVocabularyCRUDNormalizesAliasesAndTracksUse() async throws {
         let database = try LocalDatabase(path: temporaryDatabasePath())
         let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
