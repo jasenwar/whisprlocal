@@ -8,8 +8,9 @@ private let dictationPipelineLogger = Logger(
 
 struct DictationPipelineRequest: Sendable {
     let samples: [Float]
-    let hotwords: [String]
+    let hotwords: [HotwordPhrase]
     let dictionary: [String]
+    let vocabularyEntries: [DictionaryEntry]
     let snippets: [Snippet]
     let cleanupEnabled: Bool
     let contextTask: Task<DictationContext?, Never>?
@@ -17,8 +18,9 @@ struct DictationPipelineRequest: Sendable {
 
     init(
         samples: [Float],
-        hotwords: [String],
+        hotwords: [HotwordPhrase],
         dictionary: [String],
+        vocabularyEntries: [DictionaryEntry] = [],
         snippets: [Snippet],
         cleanupEnabled: Bool,
         contextTask: Task<DictationContext?, Never>? = nil,
@@ -27,6 +29,7 @@ struct DictationPipelineRequest: Sendable {
         self.samples = samples
         self.hotwords = hotwords
         self.dictionary = dictionary
+        self.vocabularyEntries = vocabularyEntries
         self.snippets = snippets
         self.cleanupEnabled = cleanupEnabled
         self.contextTask = contextTask
@@ -44,6 +47,7 @@ struct DictationPipelineOutput: Sendable {
     let correctedText: String
     let cleanupEngineIdentifier: String
     let cleanupFallbackDescription: String?
+    let appliedVocabularyEntryIDs: [Int64]
     let startedAt: ContinuousClock.Instant
     let completedAt: ContinuousClock.Instant
 }
@@ -69,7 +73,7 @@ struct DictationPipeline: Sendable {
         let transcript = try await transcriptionEngine.transcribe(
             samples: request.samples,
             sampleRate: 16_000,
-            hotwords: request.hotwords
+            hotwordPhrases: request.hotwords
         )
         let transcriptionReceivedAt = ContinuousClock.now
         let transcriptionWallSeconds = (
@@ -86,12 +90,18 @@ struct DictationPipeline: Sendable {
         )
         try Task.checkCancellation()
 
-        var corrected = transcript.text
+        let vocabularyResolution = VocabularyResolver.resolve(
+            transcript.text,
+            entries: request.vocabularyEntries
+        )
+        var corrected = vocabularyResolution.text
         var cleanupIdentifier = "raw fallback"
         var cleanupFallbackDescription: String?
 
         if request.cleanupEnabled {
-            let wordCount = transcript.text
+            let protectedVocabulary = request.dictionary
+                + request.snippets.map(\.trigger)
+            let wordCount = vocabularyResolution.text
                 .split(whereSeparator: \.isWhitespace)
                 .count
             let cleanupDeadline =
@@ -109,8 +119,8 @@ struct DictationPipeline: Sendable {
                 corrected = try await BoundedCleanupExecutor.correct(
                     using: cleanupEngine,
                     warmupTask: request.cleanupWarmupTask,
-                    text: transcript.text,
-                    dictionary: request.dictionary,
+                    text: vocabularyResolution.text,
+                    dictionary: protectedVocabulary,
                     context: context,
                     timeout: cleanupDeadline
                 )
@@ -147,6 +157,8 @@ struct DictationPipeline: Sendable {
             correctedText: corrected,
             cleanupEngineIdentifier: cleanupIdentifier,
             cleanupFallbackDescription: cleanupFallbackDescription,
+            appliedVocabularyEntryIDs:
+                vocabularyResolution.appliedEntryIDs,
             startedAt: startedAt,
             completedAt: completedAt
         )

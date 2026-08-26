@@ -2,6 +2,7 @@ import Foundation
 
 struct TranscriptPreservationAssessment: Equatable, Sendable {
     enum RejectionReason: String, Equatable, Sendable {
+        case negationChanged = "negation_changed"
         case sentenceCountDropped = "sentence_count_dropped"
         case tokenRetentionTooLow = "token_retention_too_low"
     }
@@ -14,6 +15,8 @@ struct TranscriptPreservationAssessment: Equatable, Sendable {
     let missingSignificantTokenCount: Int
     let retainedTokenRatio: Double
     let containsCorrectionMarker: Bool
+    let originalNegationCount: Int
+    let cleanedNegationCount: Int
 
     var isAccepted: Bool { rejectionReason == nil }
 }
@@ -36,6 +39,12 @@ enum TranscriptPreservationValidator {
         " make that ",
         " no wait ",
         " or rather ",
+    ]
+
+    private static let negationTokens: Set<String> = [
+        "no", "not", "never", "without", "cannot", "cant", "couldnt",
+        "didnt", "doesnt", "dont", "hadnt", "hasnt", "havent", "isnt",
+        "mustnt", "shouldnt", "wasnt", "werent", "wont", "wouldnt",
     ]
 
     static func validate(
@@ -81,10 +90,15 @@ enum TranscriptPreservationValidator {
             originalTokens.count >= 5
             && missingCount >= 2
             && retainedRatio < 0.8
+        let originalNegationCount = negationCount(in: original)
+        let cleanedNegationCount = negationCount(in: cleaned)
+        let negationChanged = originalNegationCount != cleanedNegationCount
 
         let rejectionReason:
             TranscriptPreservationAssessment.RejectionReason?
-        if !containsCorrectionMarker,
+        if !containsCorrectionMarker, negationChanged {
+            rejectionReason = .negationChanged
+        } else if !containsCorrectionMarker,
            sentenceCountDropped,
            !highConfidenceSentenceMerge {
             rejectionReason = .sentenceCountDropped
@@ -102,18 +116,33 @@ enum TranscriptPreservationValidator {
             retainedSignificantTokenCount: retainedCount,
             missingSignificantTokenCount: missingCount,
             retainedTokenRatio: retainedRatio,
-            containsCorrectionMarker: containsCorrectionMarker
+            containsCorrectionMarker: containsCorrectionMarker,
+            originalNegationCount: originalNegationCount,
+            cleanedNegationCount: cleanedNegationCount
         )
     }
 
+    private static func negationCount(in text: String) -> Int {
+        lexicalTokens(in: text)
+            .count(where: negationTokens.contains)
+    }
+
     private static func significantTokens(in text: String) -> Set<String> {
-        Set(
-            text.split {
+        Set(lexicalTokens(in: text).filter {
+            !ignoredTokens.contains($0) && !negationTokens.contains($0)
+        })
+    }
+
+    private static func lexicalTokens(in text: String) -> [String] {
+        text.lowercased()
+            .split {
                 !$0.isLetter && !$0.isNumber && $0 != "_"
+                    && $0 != "'" && $0 != "’"
             }
-            .map { $0.lowercased() }
-            .filter { !ignoredTokens.contains($0) }
-        )
+            .map {
+                String($0.filter { $0 != "'" && $0 != "’" })
+            }
+            .filter { !$0.isEmpty }
     }
 
     private static func explicitSentenceCount(in text: String) -> Int {

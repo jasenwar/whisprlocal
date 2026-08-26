@@ -24,6 +24,16 @@ image of only that window. The image stays in memory for the current request
 and is never saved. Test Lab previews both cleanup and context behavior without
 pasting or creating history.
 
+Personal Vocabulary gives the same preferred spellings to both the Groq and
+local transcription paths. Each entry can include spoken or commonly misheard
+variants, be pinned for extra local recognition weight, be disabled without
+deletion, or be limited to one running application. After transcription,
+WhisprLocal applies those variants deterministically before cleanup, so they
+still work in Fully Local mode and when cleanup is off. History can suggest
+useful name, spelling, and acronym corrections, but nothing is learned until
+you explicitly choose **Teach**. Snippet triggers are protected through cleanup
+and expanded once afterward using Unicode-aware whole-phrase matching.
+
 The microphone setting offers **System Default** and **Mac Microphone**.
 System Default follows macOS Sound settings, including AirPods. Mac Microphone
 keeps the built-in input active while audio continues through AirPods, avoiding

@@ -8,6 +8,8 @@ private let transcriptionLogger = Logger(
 )
 
 actor ParakeetTranscriptionEngine: TranscriptionEngine {
+    nonisolated static let requiredSampleRate = 16_000
+
     private let modelManager: ModelManager
     private var recognizer: RecognizerHandle?
     private var hotwordEncoder: HotwordEncoder?
@@ -23,6 +25,25 @@ actor ParakeetTranscriptionEngine: TranscriptionEngine {
         sampleRate: Int,
         hotwords: [String]
     ) async throws -> Transcript {
+        try await transcribe(
+            samples: samples,
+            sampleRate: sampleRate,
+            hotwordPhrases: hotwords.map { HotwordPhrase($0) }
+        )
+    }
+
+    func transcribe(
+        samples: [Float],
+        sampleRate: Int,
+        hotwordPhrases: [HotwordPhrase]
+    ) async throws -> Transcript {
+        guard sampleRate == Self.requiredSampleRate else {
+            transcriptionLogger.error(
+                "Rejected transcription input with unsupported sample rate: actual=\(sampleRate, privacy: .public) required=\(Self.requiredSampleRate, privacy: .public)"
+            )
+            throw WhisprLocalError.transcriptionFailed
+        }
+
         let metrics = AudioSignalMetrics(samples: samples)
         transcriptionLogger.info(
             "Transcription input: samples=\(samples.count, privacy: .public) duration=\(metrics.duration(sampleRate: Double(sampleRate)), format: .fixed(precision: 3), privacy: .public)s rms=\(metrics.rms, format: .fixed(precision: 6), privacy: .public) peak=\(metrics.peak, format: .fixed(precision: 6), privacy: .public)"
@@ -48,7 +69,15 @@ actor ParakeetTranscriptionEngine: TranscriptionEngine {
         lastUsed = Date()
         let started = ContinuousClock.now
 
-        let normalizedHotwords = hotwordEncoder?.encode(hotwords) ?? ""
+        let hotwordEncoding = hotwordEncoder?.encode(hotwordPhrases)
+            ?? HotwordEncodingResult(
+                serialized: "",
+                acceptedPhrases: [],
+                droppedPhrases: hotwordPhrases
+            )
+        transcriptionLogger.info(
+            "Hotword encoding completed: requested=\(hotwordPhrases.count, privacy: .public) accepted=\(hotwordEncoding.acceptedCount, privacy: .public) dropped=\(hotwordEncoding.droppedCount, privacy: .public)"
+        )
 
         let preparedSamples = Self.addingBoundarySilence(
             to: samples,
@@ -59,7 +88,7 @@ actor ParakeetTranscriptionEngine: TranscriptionEngine {
             recognizer: recognizer,
             samples: preparedSamples,
             sampleRate: sampleRate,
-            hotwords: normalizedHotwords
+            hotwords: hotwordEncoding.serialized
         )
 
         if text.isEmpty {
@@ -123,9 +152,12 @@ actor ParakeetTranscriptionEngine: TranscriptionEngine {
     private func ensureRecognizer() async throws {
         guard recognizer == nil else { return }
         let paths = try await modelManager.paths()
-        recognizer = try createRecognizer(paths: paths).map(RecognizerHandle.init)
-        hotwordEncoder = try HotwordEncoder(tokensFile: paths.tokens)
-        guard recognizer != nil else { throw WhisprLocalError.transcriptionFailed }
+        let createdHotwordEncoder = try HotwordEncoder(tokensFile: paths.tokens)
+        guard let createdRecognizer = try createRecognizer(paths: paths) else {
+            throw WhisprLocalError.transcriptionFailed
+        }
+        recognizer = RecognizerHandle(createdRecognizer)
+        hotwordEncoder = createdHotwordEncoder
     }
 
     private func decode(
@@ -180,7 +212,7 @@ actor ParakeetTranscriptionEngine: TranscriptionEngine {
         guard strings.count == 8 else { throw WhisprLocalError.transcriptionFailed }
 
         var configuration = SherpaOnnxOfflineRecognizerConfig()
-        configuration.feat_config.sample_rate = 16_000
+        configuration.feat_config.sample_rate = Int32(Self.requiredSampleRate)
         configuration.feat_config.feature_dim = 80
         configuration.model_config.transducer.encoder = strings[0]
         configuration.model_config.transducer.decoder = strings[1]

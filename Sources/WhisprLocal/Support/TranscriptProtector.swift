@@ -67,7 +67,11 @@ enum TranscriptProtector {
         #"\b\d+(?:[.,]\d+)*\b"#
     ]
 
-    static func protect(_ text: String, dictionary: [String]) -> ProtectedTranscript {
+    static func protect(
+        _ text: String,
+        dictionary: [String],
+        additionalTerms: [String] = []
+    ) -> ProtectedTranscript {
         let fullRange = NSRange(text.startIndex..., in: text)
         var candidates: [Candidate] = []
 
@@ -83,14 +87,35 @@ enum TranscriptProtector {
             })
         }
 
-        for term in dictionary.prefix(250) {
-            let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let escaped = NSRegularExpression.escapedPattern(for: trimmed)
-            let pattern = #"(?<![\p{L}\p{N}_])"# + escaped + #"(?![\p{L}\p{N}_])"#
+        var seenTerms: Set<String> = []
+        let protectedTerms = (dictionary + additionalTerms).compactMap {
+            term -> String? in
+            let trimmed = term
+                .precomposedStringWithCanonicalMapping
+                .split(whereSeparator: \.isWhitespace)
+                .joined(separator: " ")
+            guard !trimmed.isEmpty else { return nil }
+            let key = trimmed.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: .current
+            )
+            guard seenTerms.insert(key).inserted else { return nil }
+            return trimmed
+        }
+        .sorted { $0.count > $1.count }
+
+        for term in protectedTerms {
+            let escaped = term
+                .split(whereSeparator: \.isWhitespace)
+                .map { NSRegularExpression.escapedPattern(for: String($0)) }
+                .joined(separator: #"\s+"#)
+            let wordLike = #"\p{L}\p{N}\p{M}\p{Pc}"#
+            let pattern = #"(?<![\#(wordLike)])"#
+                + escaped
+                + #"(?![\#(wordLike)])"#
             guard let regex = try? NSRegularExpression(
                 pattern: pattern,
-                options: [.caseInsensitive]
+                options: [.caseInsensitive, .useUnicodeWordBoundaries]
             ) else {
                 continue
             }
@@ -100,7 +125,7 @@ enum TranscriptProtector {
             ).map {
                 Candidate(
                     range: $0.range,
-                    replacement: trimmed,
+                    replacement: term,
                     priority: 1
                 )
             })

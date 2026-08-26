@@ -20,10 +20,13 @@ final class AppContextCaptureService {
 
     func capture(
         level: ContextAwarenessLevel,
-        excludedBundleIdentifiers: Set<String>
+        excludedBundleIdentifiers: Set<String>,
+        targetProcessIdentifier: pid_t? = nil
     ) async -> CapturedAppContext? {
         guard level != .off,
-              let application = NSWorkspace.shared.frontmostApplication else {
+              let application = targetProcessIdentifier.flatMap({
+                  NSRunningApplication(processIdentifier: $0)
+              }) ?? NSWorkspace.shared.frontmostApplication else {
             return nil
         }
 

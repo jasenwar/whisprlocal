@@ -116,11 +116,14 @@ final class DictationCoordinator {
         transition(to: .transcribing)
         playStopCue()
         let token = recordingToken
-        let hotwords =
-            dictionaryStore.terms
-            + snippetStore.snippets.map(\.trigger)
-        let dictionary = dictionaryStore.terms
         let snippets = snippetStore.snippets
+        let vocabularyPlan = VocabularyPlanner.makePlan(
+            entries: dictionaryStore.entries,
+            snippets: snippets,
+            targetBundleIdentifier: targetApplication?.bundleIdentifier
+        )
+        let hotwords = vocabularyPlan.transcriptionPhrases
+        let dictionary = vocabularyPlan.cleanupTerms
         let cleanupEnabled = preferences.cleanupEnabled
         let cleanupWarmup = cleanupWarmupTask
         let contextTask = contextPreparationTask
@@ -138,6 +141,7 @@ final class DictationCoordinator {
                 samples: samples,
                 hotwords: hotwords,
                 dictionary: dictionary,
+                vocabularyEntries: vocabularyPlan.entries,
                 snippets: snippets,
                 cleanupEnabled: cleanupEnabled,
                 contextTask: contextTask,
@@ -268,6 +272,9 @@ final class DictationCoordinator {
                 transcriptionEngine: output.transcript.engine,
                 cleanupEngine: output.cleanupEngineIdentifier,
                 status: status
+            )
+            await dictionaryStore.recordUsage(
+                entryIDs: output.appliedVocabularyEntryIDs
             )
             await historyStore.reload()
             settleToIdle()
@@ -472,7 +479,8 @@ final class DictationCoordinator {
     private func startContextPreparation() {
         contextPreparationTask?.cancel()
         contextPreparationTask = nil
-        guard preferences.processingMode == .groqPreferred,
+        guard preferences.cleanupEnabled,
+              preferences.processingMode == .groqPreferred,
               preferences.contextAwarenessLevel != .off,
               let contextService else {
             return
@@ -485,7 +493,8 @@ final class DictationCoordinator {
             await contextService.prepare(
                 level: level,
                 excludedBundleIdentifiers: exclusions,
-                customPrompt: customPrompt
+                customPrompt: customPrompt,
+                targetProcessIdentifier: targetApplication?.processIdentifier
             )
         }
     }

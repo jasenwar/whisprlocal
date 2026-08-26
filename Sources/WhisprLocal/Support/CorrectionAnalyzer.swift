@@ -12,17 +12,33 @@ enum CorrectionAnalyzer {
     static func candidates(raw: String, corrected: String) -> [CorrectionCandidate] {
         let rawWords = lexicalWords(raw)
         let correctedWords = lexicalWords(corrected)
-        guard abs(rawWords.count - correctedWords.count) <= 2 else { return [] }
-
-        return zip(rawWords, correctedWords).compactMap { original, replacement in
+        var seen: Set<String> = []
+        return alignedSubstitutions(rawWords, correctedWords).compactMap {
+            original,
+            replacement in
+            let originalKey = original.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: .current
+            )
+            let replacementKey = replacement.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: .current
+            )
+            let isCaseOnly = originalKey == replacementKey
             guard original != replacement,
-                  original.caseInsensitiveCompare(replacement) != .orderedSame
-                    || original != replacement,
-                  !stopwords.contains(original.lowercased()),
-                  !stopwords.contains(replacement.lowercased()),
+                  !stopwords.contains(originalKey),
+                  !stopwords.contains(replacementKey),
+                  (!isCaseOnly || usefulCanonicalCapitalization(replacement)),
                   plausibleLexicalChange(original, replacement)
-            else { return nil }
-            return CorrectionCandidate(original: original, replacement: replacement)
+            else {
+                return nil
+            }
+            let key = originalKey + "\u{0}" + replacementKey
+            guard seen.insert(key).inserted else { return nil }
+            return CorrectionCandidate(
+                original: original,
+                replacement: replacement
+            )
         }
     }
 
@@ -59,6 +75,63 @@ enum CorrectionAnalyzer {
         if lhs.caseInsensitiveCompare(rhs) == .orderedSame { return true }
         let distance = levenshtein(lhs.lowercased(), rhs.lowercased())
         return distance <= max(2, min(lhs.count, rhs.count) / 3)
+    }
+
+    private static func usefulCanonicalCapitalization(_ value: String) -> Bool {
+        let letters = value.filter(\.isLetter)
+        guard letters.count >= 2 else { return false }
+        return letters.allSatisfy(\.isUppercase)
+            || value.dropFirst().contains(where: \.isUppercase)
+    }
+
+    private static func alignedSubstitutions(
+        _ lhs: [String],
+        _ rhs: [String]
+    ) -> [(String, String)] {
+        var table = Array(
+            repeating: Array(repeating: 0, count: rhs.count + 1),
+            count: lhs.count + 1
+        )
+        for i in 0...lhs.count { table[i][0] = i }
+        for j in 0...rhs.count { table[0][j] = j }
+        guard !lhs.isEmpty, !rhs.isEmpty else { return [] }
+
+        for i in 1...lhs.count {
+            for j in 1...rhs.count {
+                let equal = lhs[i - 1].caseInsensitiveCompare(rhs[j - 1])
+                    == .orderedSame
+                table[i][j] = min(
+                    table[i - 1][j] + 1,
+                    table[i][j - 1] + 1,
+                    table[i - 1][j - 1] + (equal ? 0 : 1)
+                )
+            }
+        }
+
+        var i = lhs.count
+        var j = rhs.count
+        var substitutions: [(String, String)] = []
+        while i > 0 || j > 0 {
+            if i > 0, j > 0 {
+                let equal = lhs[i - 1].caseInsensitiveCompare(rhs[j - 1])
+                    == .orderedSame
+                let cost = equal ? 0 : 1
+                if table[i][j] == table[i - 1][j - 1] + cost {
+                    if !equal || lhs[i - 1] != rhs[j - 1] {
+                        substitutions.append((lhs[i - 1], rhs[j - 1]))
+                    }
+                    i -= 1
+                    j -= 1
+                    continue
+                }
+            }
+            if i > 0, table[i][j] == table[i - 1][j] + 1 {
+                i -= 1
+            } else if j > 0 {
+                j -= 1
+            }
+        }
+        return substitutions.reversed()
     }
 
     private static func levenshtein(_ lhs: String, _ rhs: String) -> Int {

@@ -14,10 +14,14 @@ final class ParakeetIntegrationTests: XCTestCase {
         let result = try await engine.transcribe(
             samples: samples,
             sampleRate: sampleRate,
-            hotwords: ["Jasen Guerra"]
+            hotwordPhrases: [HotwordPhrase("Phoebe", score: 2.0)]
         )
         XCTAssertFalse(result.text.isEmpty)
         XCTAssertTrue(result.engine.contains("Parakeet Unified English"))
+        XCTAssertTrue(
+            result.text.localizedCaseInsensitiveContains("Phoebe"),
+            "Expected the fixed custom-term fixture to contain Phoebe."
+        )
     }
 
     func testShortQuietEnglishFixtureStillTranscribes() async throws {
@@ -44,6 +48,26 @@ final class ParakeetIntegrationTests: XCTestCase {
             hotwords: ["Jasen Guerra"]
         )
         XCTAssertFalse(result.text.isEmpty)
+    }
+
+    func testNon16KSampleRateIsRejectedBeforeModelLoading() async {
+        let manager = ModelManager(
+            baseDirectory: FileManager.default.temporaryDirectory
+                .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        )
+        let engine = ParakeetTranscriptionEngine(modelManager: manager)
+
+        do {
+            _ = try await engine.transcribe(
+                samples: Array(repeating: 0.2, count: 9_600),
+                sampleRate: 48_000,
+                hotwords: []
+            )
+            XCTFail("Expected a non-16 kHz sample-rate error.")
+        } catch WhisprLocalError.transcriptionFailed {
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 
     private func loadFixture() throws -> (samples: [Float], sampleRate: Int) {

@@ -148,10 +148,16 @@ final class AppEnvironment {
         launchAtLogin.migrateLegacyRegistrationIfNeeded()
         launchAtLogin.repairRegistrationIfNeeded()
         statusItem.setEnabled(preferences.showMenuBarIcon)
-        monitor.start()
         refreshPermissions()
         refreshGroqStatus()
         Task {
+            // Vocabulary and snippets are part of recognition. Load them before
+            // accepting the first global Fn press so startup cannot race an
+            // otherwise valid personal dictionary.
+            await dictionaryStore.reload()
+            await snippetStore.reload()
+            monitor.start()
+            await historyStore.reload()
             do {
                 _ = try await modelManager.prepareFromExistingCache()
             } catch {
@@ -164,7 +170,6 @@ final class AppEnvironment {
                 cleanupSetupMessage = error.localizedDescription
             }
             cleanupModelStatus = await cleanupModelManager.status()
-            await reloadStores()
         }
     }
 
@@ -306,9 +311,9 @@ final class AppEnvironment {
                 trimmed,
                 dictionary: dictionary
             )
-            let systemPrompt = customPrompt.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            ).isEmpty ? GroqCleanupPrompt.system : customPrompt
+        let systemPrompt = GroqCleanupPrompt.resolvedSystemPrompt(
+            custom: customPrompt
+        )
             let userPrompt = GroqCleanupPrompt.userMessage(
                 protectedText: protected.text,
                 dictionary: dictionary,

@@ -159,6 +159,22 @@ final class LocalCleanupSupportTests: XCTestCase {
         )
     }
 
+    func testPreservationValidatorRejectsChangedNegation() {
+        let assessment = TranscriptPreservationValidator.assess(
+            original: "Do not delete the production database.",
+            cleaned: "Delete the production database."
+        )
+        XCTAssertFalse(assessment.isAccepted)
+        XCTAssertEqual(assessment.rejectionReason, .negationChanged)
+
+        XCTAssertNoThrow(
+            try TranscriptPreservationValidator.validate(
+                original: "I don't want to delete the database.",
+                cleaned: "I do not want to delete the database."
+            )
+        )
+    }
+
     func testPreservationAssessmentExplainsSafeMergeAndContentLoss() {
         let safeMerge = TranscriptPreservationValidator.assess(
             original: "Please send the report. Then restart the server.",

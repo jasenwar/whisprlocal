@@ -22,10 +22,17 @@ truth; the generated Xcode project is intentionally not committed.
 5. In Groq Preferred mode, `HybridTranscriptionEngine` sends the in-memory WAV
    payload to Groq Whisper and falls back to `ParakeetTranscriptionEngine` when
    the selected Groq path is unavailable or limited. Fully Local mode uses
-   Parakeet directly. Dictionary terms and snippet triggers are SentencePiece-
-   encoded and passed through Parakeet's per-stream hotword API with modified
-   beam search and score 1.5.
-6. `HybridCleanupEngine` first requests conservative cleanup from the selected
+   Parakeet directly. A shared vocabulary planner ranks enabled, applicable
+   preferred spellings and snippet triggers. Groq receives a deduplicated,
+   token-bounded spelling prompt; Parakeet receives exact SentencePiece
+   per-stream hotwords through modified beam search. Pinned entries receive a
+   bounded score boost above the 1.5 default. Unsupported local hotwords are
+   counted and skipped without exposing vocabulary text in logs.
+6. `VocabularyResolver` applies preferred capitalization and reviewed spoken
+   variants before cleanup. Matching is Unicode-aware, whole-phrase,
+   longest-first, app-scoped, and nonrecursive. The original engine transcript
+   remains unchanged in History for recovery and review.
+7. `HybridCleanupEngine` first requests conservative cleanup from the selected
    Groq model. Preservation failures get one independent Groq safety-model
    attempt before `LocalCleanupEngine` takes over. Capability- and model-scoped
    cooldowns prevent one Groq failure from disabling unrelated paths. The local
@@ -36,11 +43,11 @@ truth; the generated Xcode project is intentionally not committed.
    A deterministic preservation validator rejects deleted sentence boundaries
    or substantial content loss, causing the pipeline to paste the intact raw
    transcript instead.
-7. `SnippetExpander` performs Unicode-aware, whole-phrase, longest-first
-   expansion.
-8. `SystemPasteService` snapshots every pasteboard item/type, posts Command-V,
+8. `SnippetExpander` performs a single Unicode-aware, whole-phrase,
+   longest-first expansion pass after cleanup.
+9. `SystemPasteService` snapshots every pasteboard item/type, posts Command-V,
    waits for the destination to consume it, and restores the snapshot.
-9. `LocalDatabase` stores the raw and corrected text and processing metadata.
+10. `LocalDatabase` stores the raw and corrected text and processing metadata.
 
 `DictationCoordinator` is the only owner of the state machine:
 
@@ -85,6 +92,11 @@ contention is distinguishable from model latency.
 - `transcriptions`
 - `dictionary`
 - `snippets`
+
+Dictionary schema migrations are transactional and preserve legacy terms.
+Each entry stores a preferred spelling, reviewed spoken variants, term type,
+enabled state, pinned priority, optional application scope, source, and local
+usage metadata. No vocabulary is learned automatically.
 
 ## Network boundary
 

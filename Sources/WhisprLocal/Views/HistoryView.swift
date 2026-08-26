@@ -66,15 +66,21 @@ private struct HistoryDetailView: View {
                     corrected: record.correctedText
                 )
                 if !candidates.isEmpty {
-                    GroupBox("Review spelling and name suggestions") {
+                    GroupBox("Teach WhisprLocal") {
                         VStack(alignment: .leading) {
+                            Text("Review these suggestions. Nothing is learned until you choose Teach.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                             ForEach(candidates) { candidate in
                                 HStack {
                                     Text("\(candidate.original) → \(candidate.replacement)")
                                     Spacer()
-                                    Button("Add \(candidate.replacement)") {
+                                    Button("Teach") {
                                         Task {
-                                            await dictionaryStore.add(candidate.replacement)
+                                            await dictionaryStore.teach(
+                                                canonicalTerm: candidate.replacement,
+                                                spokenAlias: candidate.original
+                                            )
                                         }
                                     }
                                 }

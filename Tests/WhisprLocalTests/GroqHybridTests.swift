@@ -134,6 +134,29 @@ final class GroqHybridTests: XCTestCase {
         XCTAssertEqual(snapshot.state, .temporarilyUnavailable)
     }
 
+    func testUnexpectedTransportFailureStillFallsBackLocally() async throws {
+        let local = StubTranscriptionEngine(text: "local transcript")
+        let engine = HybridTranscriptionEngine(
+            localEngine: local,
+            client: GroqAPIClient(
+                apiKeyProvider: { "gsk_test" },
+                transport: UnexpectedFailureGroqTransport()
+            ),
+            availability: makeAvailabilityStore(),
+            configuration: configuration(mode: .groqPreferred)
+        )
+
+        let transcript = try await engine.transcribe(
+            samples: [0.1],
+            sampleRate: 16_000,
+            hotwords: []
+        )
+
+        XCTAssertEqual(transcript.text, "local transcript")
+        let localCount = await local.transcriptionCount
+        XCTAssertEqual(localCount, 1)
+    }
+
     func testGroqCleanupReturnsValidatedTranscript() async throws {
         let transport = MockGroqTransport(responses: [
             .success(
@@ -472,6 +495,13 @@ final class GroqHybridTests: XCTestCase {
         return GroqAvailabilityStore(
             defaults: UserDefaults(suiteName: suite)!
         )
+    }
+}
+
+private struct UnexpectedFailureGroqTransport: GroqHTTPTransport {
+    func data(for request: URLRequest) async throws
+        -> (Data, HTTPURLResponse) {
+        throw URLError(.networkConnectionLost)
     }
 }
 

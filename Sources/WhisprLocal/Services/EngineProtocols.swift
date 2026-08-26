@@ -7,8 +7,28 @@ protocol TranscriptionEngine: Sendable {
         hotwords: [String]
     ) async throws -> Transcript
 
+    func transcribe(
+        samples: [Float],
+        sampleRate: Int,
+        hotwordPhrases: [HotwordPhrase]
+    ) async throws -> Transcript
+
     func prewarm() async
     func releaseIfIdle() async
+}
+
+extension TranscriptionEngine {
+    func transcribe(
+        samples: [Float],
+        sampleRate: Int,
+        hotwordPhrases: [HotwordPhrase]
+    ) async throws -> Transcript {
+        try await transcribe(
+            samples: samples,
+            sampleRate: sampleRate,
+            hotwords: hotwordPhrases.map(\.text)
+        )
+    }
 }
 
 protocol CleanupEngine: Sendable {

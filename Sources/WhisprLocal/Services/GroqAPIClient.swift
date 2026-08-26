@@ -307,21 +307,10 @@ struct GroqAPIClient: Sendable {
         field("response_format", "json")
         field("language", "en")
         field("temperature", "0")
-        let terms = hotwords
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        var selectedTerms: [String] = []
-        var characterCount = 0
-        for term in terms {
-            let clipped = String(term.prefix(80))
-            let addedCount = clipped.count + (selectedTerms.isEmpty ? 0 : 2)
-            guard characterCount + addedCount <= 700 else { break }
-            selectedTerms.append(clipped)
-            characterCount += addedCount
-        }
-        let vocabulary = selectedTerms.joined(separator: ", ")
-        if !vocabulary.isEmpty {
-            field("prompt", "Preferred spellings: \(vocabulary)")
+        if let prompt = Self.transcriptionPrompt(
+            preferredSpellings: hotwords
+        ) {
+            field("prompt", prompt)
         }
 
         append("--\(boundary)\r\n")
@@ -330,6 +319,43 @@ struct GroqAPIClient: Sendable {
         body.append(audio)
         append("\r\n--\(boundary)--\r\n")
         return body
+    }
+
+    static func transcriptionPrompt(
+        preferredSpellings: [String],
+        maximumTokens: Int = 224
+    ) -> String? {
+        let prefix = "Preferred spellings: "
+        var selected: [String] = []
+        var seen: Set<String> = []
+        for value in preferredSpellings {
+            let normalized = value
+                .precomposedStringWithCanonicalMapping
+                .split(whereSeparator: \.isWhitespace)
+                .joined(separator: " ")
+            guard !normalized.isEmpty else { continue }
+            let clipped = String(normalized.prefix(80))
+            let key = clipped.folding(
+                options: [.caseInsensitive],
+                locale: .current
+            )
+            guard seen.insert(key).inserted else { continue }
+            let candidate = prefix + (selected + [clipped]).joined(separator: ", ")
+            guard estimatedTokenCount(candidate) <= maximumTokens else {
+                continue
+            }
+            selected.append(clipped)
+        }
+        guard !selected.isEmpty else { return nil }
+        return prefix + selected.joined(separator: ", ")
+    }
+
+    private static func estimatedTokenCount(_ value: String) -> Int {
+        let byteEstimate = Int(ceil(Double(value.utf8.count) / 4.0))
+        let wordEstimate = value.split(whereSeparator: { character in
+            character.isWhitespace || character.isPunctuation
+        }).count
+        return max(byteEstimate, wordEstimate)
     }
 
     private static func strippingReasoningTags(_ value: String) -> String {

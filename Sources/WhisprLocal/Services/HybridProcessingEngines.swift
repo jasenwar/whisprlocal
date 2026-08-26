@@ -48,6 +48,18 @@ actor HybridTranscriptionEngine: TranscriptionEngine {
         sampleRate: Int,
         hotwords: [String]
     ) async throws -> Transcript {
+        try await transcribe(
+            samples: samples,
+            sampleRate: sampleRate,
+            hotwordPhrases: hotwords.map { HotwordPhrase($0) }
+        )
+    }
+
+    func transcribe(
+        samples: [Float],
+        sampleRate: Int,
+        hotwordPhrases: [HotwordPhrase]
+    ) async throws -> Transcript {
         let settings = await configuration()
         let scope = GroqRequestScope.transcription(
             settings.transcriptionModel
@@ -58,7 +70,7 @@ actor HybridTranscriptionEngine: TranscriptionEngine {
             return try await localEngine.transcribe(
                 samples: samples,
                 sampleRate: sampleRate,
-                hotwords: hotwords
+                hotwordPhrases: hotwordPhrases
             )
         }
 
@@ -67,7 +79,7 @@ actor HybridTranscriptionEngine: TranscriptionEngine {
             let text = try await client.transcribe(
                 samples: samples,
                 sampleRate: sampleRate,
-                hotwords: hotwords,
+                hotwords: hotwordPhrases.map(\.text),
                 model: settings.transcriptionModel
             )
             await availability.recordSuccess(scope)
@@ -87,7 +99,17 @@ actor HybridTranscriptionEngine: TranscriptionEngine {
             return try await localEngine.transcribe(
                 samples: samples,
                 sampleRate: sampleRate,
-                hotwords: hotwords
+                hotwordPhrases: hotwordPhrases
+            )
+        } catch {
+            hybridEngineLogger.error(
+                "Groq transcription failed unexpectedly and fell back locally: \(error.localizedDescription, privacy: .public)"
+            )
+            await localEngine.prewarm()
+            return try await localEngine.transcribe(
+                samples: samples,
+                sampleRate: sampleRate,
+                hotwordPhrases: hotwordPhrases
             )
         }
     }
@@ -160,10 +182,9 @@ actor HybridCleanupEngine: CleanupEngine {
             trimmed,
             dictionary: dictionary
         )
-        let custom = settings.customCleanupPrompt.trimmingCharacters(
-            in: .whitespacesAndNewlines
+        let systemPrompt = GroqCleanupPrompt.resolvedSystemPrompt(
+            custom: settings.customCleanupPrompt
         )
-        let systemPrompt = custom.isEmpty ? GroqCleanupPrompt.system : custom
         let userPrompt = GroqCleanupPrompt.userMessage(
             protectedText: protected.text,
             dictionary: dictionary,
@@ -335,7 +356,7 @@ actor HybridCleanupEngine: CleanupEngine {
         switch error {
         case .preservation(let assessment):
             hybridEngineLogger.notice(
-                "Groq cleanup rejected model=\(model.rawValue, privacy: .public) reason=\(assessment.rejectionReason?.rawValue ?? "unknown", privacy: .public) originalSentences=\(assessment.originalSentenceCount, privacy: .public) cleanedSentences=\(assessment.cleanedSentenceCount, privacy: .public) significantTokens=\(assessment.originalSignificantTokenCount, privacy: .public) retainedTokens=\(assessment.retainedSignificantTokenCount, privacy: .public) missingTokens=\(assessment.missingSignificantTokenCount, privacy: .public) retainedRatio=\(assessment.retainedTokenRatio, format: .fixed(precision: 3), privacy: .public)"
+                "Groq cleanup rejected model=\(model.rawValue, privacy: .public) reason=\(assessment.rejectionReason?.rawValue ?? "unknown", privacy: .public) originalSentences=\(assessment.originalSentenceCount, privacy: .public) cleanedSentences=\(assessment.cleanedSentenceCount, privacy: .public) significantTokens=\(assessment.originalSignificantTokenCount, privacy: .public) retainedTokens=\(assessment.retainedSignificantTokenCount, privacy: .public) missingTokens=\(assessment.missingSignificantTokenCount, privacy: .public) retainedRatio=\(assessment.retainedTokenRatio, format: .fixed(precision: 3), privacy: .public) originalNegations=\(assessment.originalNegationCount, privacy: .public) cleanedNegations=\(assessment.cleanedNegationCount, privacy: .public)"
             )
         case .emptyOutput:
             hybridEngineLogger.notice(
