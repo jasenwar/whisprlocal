@@ -17,6 +17,38 @@ final class TextProcessingTests: XCTestCase {
         )
     }
 
+    func testTerminalMultilineSnippetIsAnExactBlockAfterCleanupPunctuation() {
+        let snippet = Snippet(
+            id: 1,
+            trigger: "whisper signature",
+            replacement: "Thanks,\nJasen",
+            createdAt: .now
+        )
+        XCTAssertEqual(
+            SnippetExpander.expand(
+                "Please send the project update, whisper signature.",
+                snippets: [snippet]
+            ),
+            "Please send the project update.\nThanks,\nJasen"
+        )
+    }
+
+    func testTerminalMultilineSnippetPreservesIntentionalLeadingAndBlankLines() {
+        let snippet = Snippet(
+            id: 1,
+            trigger: "whisper signature",
+            replacement: "\nThanks,\n\nJasen",
+            createdAt: .now
+        )
+        XCTAssertEqual(
+            SnippetExpander.expand(
+                "Please send the project update whisper signature.",
+                snippets: [snippet]
+            ),
+            "Please send the project update.\nThanks,\n\nJasen"
+        )
+    }
+
     func testCandidateFilterKeepsLikelyNamesAndDropsGrammarStopwords() {
         let candidates = CorrectionAnalyzer.candidates(
             raw: "send it to jason at noon",

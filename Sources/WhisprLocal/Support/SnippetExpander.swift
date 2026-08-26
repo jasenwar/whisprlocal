@@ -38,9 +38,76 @@ enum SnippetExpander {
             }) else {
                 continue
             }
-            expanded.replaceSubrange(range, with: snippet.replacement)
+            let expansion = multilineBlockExpansion(
+                in: expanded,
+                triggerRange: range,
+                replacement: snippet.replacement
+            )
+            expanded.replaceSubrange(expansion.range, with: expansion.text)
         }
         return expanded
+    }
+
+    /// A multiline replacement is an exact text block when its trigger ends
+    /// the transcript. Cleanup models commonly append sentence punctuation to
+    /// the trigger or turn the preceding boundary into a comma. Move that
+    /// punctuation to the prose before the block instead of leaking it into
+    /// the replacement.
+    private static func multilineBlockExpansion(
+        in text: String,
+        triggerRange: Range<String.Index>,
+        replacement: String
+    ) -> (range: Range<String.Index>, text: String) {
+        guard replacement.contains(where: \.isNewline) else {
+            return (triggerRange, replacement)
+        }
+
+        let trailingPunctuation: Set<Character> = [".", ",", ";", ":", "!", "?", "…"]
+        let suffix = text[triggerRange.upperBound...]
+        guard suffix.allSatisfy({
+            $0.isWhitespace || trailingPunctuation.contains($0)
+        }) else {
+            return (triggerRange, replacement)
+        }
+
+        var lowerBound = triggerRange.lowerBound
+        while lowerBound > text.startIndex {
+            let previous = text.index(before: lowerBound)
+            let character = text[previous]
+            guard character.isWhitespace, !character.isNewline else { break }
+            lowerBound = previous
+        }
+
+        guard lowerBound > text.startIndex else {
+            return (lowerBound..<text.endIndex, replacement)
+        }
+
+        let previous = text.index(before: lowerBound)
+        let precedingCharacter = text[previous]
+        let connectorPunctuation: Set<Character> = [",", ";", ":", "-", "–", "—"]
+        let sentencePunctuation: Set<Character> = [".", "!", "?", "…"]
+        var boundary = ""
+
+        if precedingCharacter.isNewline {
+            boundary = ""
+        } else if connectorPunctuation.contains(precedingCharacter) {
+            lowerBound = previous
+            boundary = "."
+        } else if sentencePunctuation.contains(precedingCharacter) {
+            boundary = ""
+        } else {
+            boundary = "."
+        }
+
+        if !precedingCharacter.isNewline,
+           replacement.first?.isNewline != true {
+            boundary += "\n"
+        }
+
+        return (
+            lowerBound..<text.endIndex,
+            boundary + replacement
+        )
     }
 
     private static func normalizedSnippets(_ snippets: [Snippet]) -> [Snippet] {

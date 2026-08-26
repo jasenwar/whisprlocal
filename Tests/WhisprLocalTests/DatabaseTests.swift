@@ -42,7 +42,7 @@ final class DatabaseTests: XCTestCase {
         XCTAssertEqual(snippets[0].replacement, replacement)
         XCTAssertEqual(
             SnippetExpander.expand("Use whisper signature", snippets: snippets),
-            "Use Thanks,\nJasen"
+            "Use.\nThanks,\nJasen"
         )
     }
 

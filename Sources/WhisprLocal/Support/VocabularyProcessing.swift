@@ -45,7 +45,9 @@ enum VocabularyPlanner {
                 ) == .orderedAscending
             }
 
-        let cleanupTerms = deduplicated(applicable.map(\.canonicalTerm))
+        let cleanupTerms = deduplicated(
+            applicable.map(\.canonicalTerm) + snippets.map(\.trigger)
+        )
         var seenRecognition: Set<String> = []
         var recognition: [HotwordPhrase] = []
         for entry in applicable {

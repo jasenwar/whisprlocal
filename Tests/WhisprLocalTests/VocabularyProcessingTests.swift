@@ -22,6 +22,22 @@ final class VocabularyProcessingTests: XCTestCase {
         XCTAssertFalse(plan.cleanupTerms.contains("Disabled"))
     }
 
+    func testPlanProtectsSnippetTriggersDuringCleanup() {
+        let snippet = Snippet(
+            id: 1,
+            trigger: "whisper signature",
+            replacement: "Thanks,\nJasen",
+            createdAt: .now
+        )
+        let plan = VocabularyPlanner.makePlan(
+            entries: [entry(id: 1, term: "Jasen")],
+            snippets: [snippet],
+            targetBundleIdentifier: nil
+        )
+
+        XCTAssertEqual(plan.cleanupTerms, ["Jasen", "whisper signature"])
+    }
+
     func testResolverAppliesAliasesAndCanonicalCapitalizationInOnePass() {
         let entries = [
             entry(
