@@ -2,7 +2,9 @@ import Foundation
 
 enum DeterministicTranscriptCleanup {
     static func finalize(_ text: String) -> String {
-        var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = SpokenTimeNormalizer.normalize(
+            text.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
         guard !result.isEmpty else {
             return result
         }

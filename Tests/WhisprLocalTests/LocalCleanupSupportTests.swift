@@ -31,6 +31,46 @@ final class LocalCleanupSupportTests: XCTestCase {
         )
     }
 
+    func testDeterministicFinalizerFormatsUnambiguousSpokenTimes() {
+        XCTAssertEqual(
+            DeterministicTranscriptCleanup.finalize(
+                "i think the meeting is at three thirty tomorrow"
+            ),
+            "I think the meeting is at 3:30 tomorrow."
+        )
+        XCTAssertEqual(
+            DeterministicTranscriptCleanup.finalize(
+                "call me around eight oh five a m"
+            ),
+            "Call me around 8:05 AM."
+        )
+        XCTAssertEqual(
+            DeterministicTranscriptCleanup.finalize(
+                "the deployment starts at three o'clock"
+            ),
+            "The deployment starts at 3:00."
+        )
+        XCTAssertEqual(
+            DeterministicTranscriptCleanup.finalize(
+                "the review ends twelve forty five p.m."
+            ),
+            "The review ends 12:45 PM."
+        )
+    }
+
+    func testSpokenTimeNormalizerLeavesAmbiguousNumbersUntouched() {
+        let examples = [
+            "Version three thirty is stable.",
+            "We need three thirty-page reports.",
+            "The batch contains three hundred thirty records.",
+            "Call 1 800 555 0130.",
+        ]
+
+        for example in examples {
+            XCTAssertEqual(SpokenTimeNormalizer.normalize(example), example)
+        }
+    }
+
     func testProductionModelManifestIsRevisionAndHashPinned() {
         let manifest = LocalCleanupModelManifest.production
 
@@ -116,6 +156,15 @@ final class LocalCleanupSupportTests: XCTestCase {
                 return XCTFail("Unexpected error: \(error)")
             }
         }
+    }
+
+    func testPreservationValidatorAcceptsEquivalentNumericTime() {
+        XCTAssertNoThrow(
+            try TranscriptPreservationValidator.validate(
+                original: "I think the meeting is at three thirty tomorrow.",
+                cleaned: "I think the meeting is at 3:30 tomorrow."
+            )
+        )
     }
 
     func testPreservationValidatorRejectsRemovedUnpunctuatedClause() {

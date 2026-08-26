@@ -74,8 +74,12 @@ enum TranscriptPreservationValidator {
             normalizedOriginal.contains($0)
         })
 
-        let originalTokens = significantTokens(in: original)
-        let cleanedTokens = significantTokens(in: cleaned)
+        let originalTokens = significantTokens(
+            in: SpokenTimeNormalizer.normalize(original)
+        )
+        let cleanedTokens = significantTokens(
+            in: SpokenTimeNormalizer.normalize(cleaned)
+        )
         let retainedCount = originalTokens.intersection(cleanedTokens).count
         let missingCount = originalTokens.count - retainedCount
         let retainedRatio = originalTokens.isEmpty

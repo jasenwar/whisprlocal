@@ -192,6 +192,38 @@ final class GroqHybridTests: XCTestCase {
         )
     }
 
+    func testGroqCleanupAcceptsAndFormatsEquivalentNumericTime() async throws {
+        let transport = MockGroqTransport(responses: [
+            .success(
+                status: 200,
+                body: #"{"choices":[{"message":{"content":"Hey, can you clean this up? I think the meeting is at 3:30 tomorrow. Send it to Jasen."}}]}"#
+            )
+        ])
+        let local = StubCleanupEngine(result: "local cleanup")
+        let engine = HybridCleanupEngine(
+            localEngine: local,
+            client: GroqAPIClient(
+                apiKeyProvider: { "gsk_test" },
+                transport: transport
+            ),
+            availability: makeAvailabilityStore(),
+            configuration: configuration(mode: .groqPreferred)
+        )
+
+        let result = try await engine.correct(
+            text: "hey can you clean this up i think the meeting is at three thirty tomorrow and um send it to Jasen",
+            dictionary: []
+        )
+
+        XCTAssertEqual(
+            result,
+            "Hey, can you clean this up? I think the meeting is at 3:30 tomorrow. Send it to Jasen."
+        )
+        XCTAssertEqual(transport.requestCount, 1)
+        let correctionCount = await local.correctionCount
+        XCTAssertEqual(correctionCount, 0)
+    }
+
     func testRejectedGPTCleanupRetriesGroqQwenBeforeLocalFallback() async throws {
         let transport = MockGroqTransport(responses: [
             .success(

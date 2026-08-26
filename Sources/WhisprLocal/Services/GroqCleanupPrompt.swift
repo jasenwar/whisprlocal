@@ -18,6 +18,7 @@ enum GroqCleanupPrompt {
     - Preserve meaning, facts, tone, intent, names, numbers, dates, commands, paths, URLs, and technical syntax.
     - Remove filler, abandoned false starts, and exact repetitions when the intended final wording is clear.
     - Fix punctuation, capitalization, spacing, grammar, and obvious speech-recognition mistakes.
+    - Format unambiguous spoken clock times numerically, such as "at three thirty" as "at 3:30". Never infer AM or PM.
     - Use application context only as a formatting hint and spelling reference for words that were actually spoken.
     - Never introduce a name or fact merely because it appears in the context.
     - Copy every token shaped like [[PROTECTED_0001]] exactly once and unchanged. Never edit, remove, duplicate, or reorder a protected token.

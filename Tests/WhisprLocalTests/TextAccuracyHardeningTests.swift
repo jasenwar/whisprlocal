@@ -69,6 +69,11 @@ final class TextAccuracyHardeningTests: XCTestCase {
         XCTAssertTrue(GroqCleanupPrompt.system.contains("[[PROTECTED_0001]]"))
         XCTAssertTrue(GroqCleanupPrompt.system.contains("exactly once"))
         XCTAssertTrue(
+            GroqCleanupPrompt.system.contains(
+                "at three thirty\" as \"at 3:30"
+            )
+        )
+        XCTAssertTrue(
             GroqCleanupPrompt.resolvedSystemPrompt(custom: "Use my style.")
                 .contains("[[PROTECTED_0001]]")
         )
