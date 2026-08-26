@@ -100,6 +100,23 @@ enum SpokenTimeNormalizer {
             + #")(?![-\p{L}\p{N}_])"#
     )
 
+    private static let numericTimeAfterCueRegex = try! NSRegularExpression(
+        pattern:
+            #"(?i)(?<![\p{L}\p{N}_])(?<cue>"#
+            + cuePattern
+            + #")\s+(?<hour>1[0-2]|0?[1-9])\s+(?<minute>[0-5]?\d)(?<meridiem>\s+"#
+            + meridiemPattern
+            + #")?(?![-\p{L}\p{N}_])(?!\s+\d)"#
+    )
+
+    private static let numericTimeWithMeridiemRegex =
+        try! NSRegularExpression(
+            pattern:
+                #"(?i)(?<![\p{L}\p{N}_])(?<hour>1[0-2]|0?[1-9])\s+(?<minute>[0-5]?\d)(?<meridiem>\s+"#
+                + meridiemPattern
+                + #")(?![-\p{L}\p{N}_])(?!\s+\d)"#
+        )
+
     static func normalize(_ text: String) -> String {
         var result = replacingMatches(
             in: text,
@@ -109,6 +126,16 @@ enum SpokenTimeNormalizer {
         result = replacingMatches(
             in: result,
             regex: timeWithMeridiemRegex,
+            includesCue: false
+        )
+        result = replacingNumericMatches(
+            in: result,
+            regex: numericTimeAfterCueRegex,
+            includesCue: true
+        )
+        result = replacingNumericMatches(
+            in: result,
+            regex: numericTimeWithMeridiemRegex,
             includesCue: false
         )
         return result
@@ -137,6 +164,50 @@ enum SpokenTimeNormalizer {
                     match: match,
                     values: minuteValues
                   )
+            else {
+                continue
+            }
+
+            var replacement = "\(hour):\(String(format: "%02d", minute))"
+            if let meridiem = substring(
+                named: "meridiem",
+                in: result,
+                match: match
+            ) {
+                replacement += " " + normalizedMeridiem(meridiem)
+            }
+            if includesCue,
+               let cue = substring(named: "cue", in: result, match: match) {
+                replacement = cue + " " + replacement
+            }
+            result.replaceSubrange(wholeRange, with: replacement)
+        }
+        return result
+    }
+
+    private static func replacingNumericMatches(
+        in text: String,
+        regex: NSRegularExpression,
+        includesCue: Bool
+    ) -> String {
+        var result = text
+        let range = NSRange(text.startIndex..., in: text)
+        let matches = regex.matches(in: text, range: range)
+
+        for match in matches.reversed() {
+            guard let wholeRange = Range(match.range, in: result),
+                  let hourText = substring(
+                    named: "hour",
+                    in: result,
+                    match: match
+                  ),
+                  let minuteText = substring(
+                    named: "minute",
+                    in: result,
+                    match: match
+                  ),
+                  let hour = Int(hourText),
+                  let minute = Int(minuteText)
             else {
                 continue
             }

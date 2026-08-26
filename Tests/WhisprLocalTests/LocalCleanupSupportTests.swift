@@ -56,14 +56,28 @@ final class LocalCleanupSupportTests: XCTestCase {
             ),
             "The review ends 12:45 PM."
         )
+        XCTAssertEqual(
+            DeterministicTranscriptCleanup.finalize(
+                "hey let's make sure that we get this done by 4 15 p.m."
+            ),
+            "Hey let's make sure that we get this done by 4:15 PM."
+        )
+        XCTAssertEqual(
+            DeterministicTranscriptCleanup.finalize(
+                "the meeting starts at 3 5 tomorrow"
+            ),
+            "The meeting starts at 3:05 tomorrow."
+        )
     }
 
     func testSpokenTimeNormalizerLeavesAmbiguousNumbersUntouched() {
         let examples = [
             "Version three thirty is stable.",
+            "Version 4 15 is stable.",
             "We need three thirty-page reports.",
             "The batch contains three hundred thirty records.",
             "Call 1 800 555 0130.",
+            "Send it at 4 15 555 0130.",
         ]
 
         for example in examples {
@@ -163,6 +177,12 @@ final class LocalCleanupSupportTests: XCTestCase {
             try TranscriptPreservationValidator.validate(
                 original: "I think the meeting is at three thirty tomorrow.",
                 cleaned: "I think the meeting is at 3:30 tomorrow."
+            )
+        )
+        XCTAssertNoThrow(
+            try TranscriptPreservationValidator.validate(
+                original: "Get this done by 4 15 p.m.",
+                cleaned: "Get this done by 4:15 PM."
             )
         )
     }
