@@ -3,7 +3,9 @@ import Foundation
 enum DeterministicTranscriptCleanup {
     static func finalize(_ text: String) -> String {
         var result = SpokenTimeNormalizer.normalize(
-            text.trimmingCharacters(in: .whitespacesAndNewlines)
+            SpokenPhoneNumberNormalizer.normalize(
+                text.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
         )
         guard !result.isEmpty else {
             return result

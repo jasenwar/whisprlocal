@@ -68,12 +68,21 @@ final class LocalCleanupSupportTests: XCTestCase {
             ),
             "The meeting starts at 3:05 tomorrow."
         )
+        XCTAssertEqual(
+            DeterministicTranscriptCleanup.finalize(
+                "get this done before 4.15pm"
+            ),
+            "Get this done before 4:15 PM."
+        )
     }
 
     func testSpokenTimeNormalizerLeavesAmbiguousNumbersUntouched() {
         let examples = [
             "Version three thirty is stable.",
             "Version 4 15 is stable.",
+            "Version 4.15 is stable.",
+            "The measurement is 4.15 mm.",
+            "IP 4.15.2.1 is reachable.",
             "We need three thirty-page reports.",
             "The batch contains three hundred thirty records.",
             "Call 1 800 555 0130.",
@@ -82,6 +91,40 @@ final class LocalCleanupSupportTests: XCTestCase {
 
         for example in examples {
             XCTAssertEqual(SpokenTimeNormalizer.normalize(example), example)
+        }
+    }
+
+    func testDeterministicFinalizerFormatsNaturalSpokenPhoneNumbers() {
+        XCTAssertEqual(
+            DeterministicTranscriptCleanup.finalize(
+                "call me at five one two five five five zero one four seven"
+            ),
+            "Call me at (512) 555-0147."
+        )
+        XCTAssertEqual(
+            DeterministicTranscriptCleanup.finalize(
+                "text me at five five five zero one four seven"
+            ),
+            "Text me at 555-0147."
+        )
+        XCTAssertEqual(
+            DeterministicTranscriptCleanup.finalize(
+                "reach me on one five one two five five five zero one four seven"
+            ),
+            "Reach me on +1 (512) 555-0147."
+        )
+    }
+
+    func testSpokenPhoneNormalizerLeavesUncuedNumbersUntouched() {
+        let examples = [
+            "Code one two three four five six seven.",
+            "Version one two three four five six seven is stable.",
+            "Count one two three four five six seven eight nine ten.",
+            "Call me at five one two.",
+        ]
+
+        for example in examples {
+            XCTAssertEqual(SpokenPhoneNumberNormalizer.normalize(example), example)
         }
     }
 
@@ -183,6 +226,15 @@ final class LocalCleanupSupportTests: XCTestCase {
             try TranscriptPreservationValidator.validate(
                 original: "Get this done by 4 15 p.m.",
                 cleaned: "Get this done by 4:15 PM."
+            )
+        )
+    }
+
+    func testPreservationValidatorAcceptsEquivalentPhoneFormatting() {
+        XCTAssertNoThrow(
+            try TranscriptPreservationValidator.validate(
+                original: "Call me at five one two five five five zero one four seven.",
+                cleaned: "Call me at (512) 555-0147."
             )
         )
     }

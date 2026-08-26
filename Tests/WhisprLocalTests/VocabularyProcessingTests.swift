@@ -74,6 +74,15 @@ final class VocabularyProcessingTests: XCTestCase {
             1
         )
         XCTAssertLessThanOrEqual(value.utf8.count, 224 * 4)
+        XCTAssertTrue(value.contains("Preserve every spoken digit"))
+        XCTAssertTrue(value.contains("(512) 555-0147"))
+    }
+
+    func testGroqPromptAlwaysIncludesNaturalPhoneNumberGuidance() {
+        let prompt = GroqAPIClient.transcriptionPrompt(preferredSpellings: [])
+
+        XCTAssertNotNil(prompt)
+        XCTAssertTrue(prompt?.contains("Preserve every spoken digit") == true)
     }
 
     func testPipelineResolvesSpokenAliasWhenCleanupIsDisabled() async throws {

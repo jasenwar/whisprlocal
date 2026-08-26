@@ -117,6 +117,14 @@ enum SpokenTimeNormalizer {
                 + #")(?![-\p{L}\p{N}_])(?!\s+\d)"#
         )
 
+    private static let dottedTimeWithMeridiemRegex =
+        try! NSRegularExpression(
+            pattern:
+                #"(?i)(?<![\p{L}\p{N}_])(?<hour>1[0-2]|0?[1-9])\.(?<minute>[0-5]\d)(?<meridiem>\s*"#
+                + meridiemPattern
+                + #")(?![-\p{L}\p{N}_])"#
+        )
+
     static func normalize(_ text: String) -> String {
         var result = replacingMatches(
             in: text,
@@ -136,6 +144,11 @@ enum SpokenTimeNormalizer {
         result = replacingNumericMatches(
             in: result,
             regex: numericTimeWithMeridiemRegex,
+            includesCue: false
+        )
+        result = replacingNumericMatches(
+            in: result,
+            regex: dottedTimeWithMeridiemRegex,
             includesCue: false
         )
         return result

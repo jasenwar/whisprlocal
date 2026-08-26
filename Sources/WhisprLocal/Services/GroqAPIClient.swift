@@ -325,7 +325,11 @@ struct GroqAPIClient: Sendable {
         preferredSpellings: [String],
         maximumTokens: Int = 224
     ) -> String? {
-        let prefix = "Preferred spellings: "
+        let styleExample = """
+        Natural English dictation. Preserve every spoken digit in phone numbers, \
+        for example: Call me at (512) 555-0147.
+        """
+        let prefix = styleExample + " Preferred spellings: "
         var selected: [String] = []
         var seen: Set<String> = []
         for value in preferredSpellings {
@@ -346,7 +350,7 @@ struct GroqAPIClient: Sendable {
             }
             selected.append(clipped)
         }
-        guard !selected.isEmpty else { return nil }
+        guard !selected.isEmpty else { return styleExample }
         return prefix + selected.joined(separator: ", ")
     }
 
