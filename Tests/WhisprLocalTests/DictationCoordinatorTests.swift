@@ -126,6 +126,84 @@ final class DictationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testCorrectionLearningIsPreparedBeforePasteAndStartedAfter() async throws {
+        let events = LockedEventRecorder()
+        let monitor = RecordingCorrectionMonitor(events: events)
+        let fixture = try makeFixture(
+            audio: FakeAudioCapture(events: events),
+            media: OrderedMediaPlayback(events: events, delay: .zero),
+            pasteService: RecordingPasteService(events: events),
+            correctionMonitor: monitor
+        )
+        defer {
+            fixture.defaults.removePersistentDomain(forName: fixture.suiteName)
+        }
+
+        fixture.coordinator.beginListening()
+        try await Task.sleep(for: .milliseconds(40))
+        fixture.coordinator.finishListening()
+        try await Task.sleep(for: .milliseconds(100))
+
+        let values = events.values
+        let prepared = try XCTUnwrap(values.firstIndex(of: "learning-prepare"))
+        let pasted = try XCTUnwrap(values.firstIndex(of: "paste"))
+        let started = try XCTUnwrap(values.firstIndex(of: "learning-start"))
+        XCTAssertLessThan(prepared, pasted)
+        XCTAssertLessThan(pasted, started)
+        XCTAssertEqual(monitor.pastedText, "test ")
+    }
+
+    @MainActor
+    func testCorrectionLearningPreferenceDisablesObservation() async throws {
+        let events = LockedEventRecorder()
+        let monitor = RecordingCorrectionMonitor(events: events)
+        let fixture = try makeFixture(
+            audio: FakeAudioCapture(events: events),
+            media: OrderedMediaPlayback(events: events, delay: .zero),
+            pasteService: RecordingPasteService(events: events),
+            correctionMonitor: monitor,
+            learnFromCorrections: false
+        )
+        defer {
+            fixture.defaults.removePersistentDomain(forName: fixture.suiteName)
+        }
+
+        fixture.coordinator.beginListening()
+        try await Task.sleep(for: .milliseconds(40))
+        fixture.coordinator.finishListening()
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertFalse(events.values.contains("learning-prepare"))
+        XCTAssertFalse(events.values.contains("learning-start"))
+        XCTAssertTrue(events.values.contains("paste"))
+    }
+
+    @MainActor
+    func testCancellationDuringPasteIsTerminal() async throws {
+        let events = LockedEventRecorder()
+        let fixture = try makeFixture(
+            audio: FakeAudioCapture(events: events),
+            media: OrderedMediaPlayback(events: events, delay: .zero),
+            pasteService: CancellablePasteService(events: events)
+        )
+        defer {
+            fixture.defaults.removePersistentDomain(forName: fixture.suiteName)
+        }
+
+        fixture.coordinator.beginListening()
+        try await Task.sleep(for: .milliseconds(40))
+        fixture.coordinator.finishListening()
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertTrue(events.values.contains("paste-start"))
+
+        fixture.coordinator.cancel()
+        try await Task.sleep(for: .milliseconds(40))
+
+        XCTAssertEqual(fixture.coordinator.state, .cancelled)
+        XCTAssertFalse(events.values.contains("paste-completed"))
+    }
+
+    @MainActor
     private func makeFixture(
         audio: any AudioCapturing,
         media: any MediaPlaybackControlling,
@@ -133,7 +211,9 @@ final class DictationCoordinatorTests: XCTestCase {
             NoopTranscriptionEngine(),
         cleanupEngine: any CleanupEngine = NoopCleanupEngine(),
         pasteService: any PasteService = SystemPasteService(),
-        cleanupEnabled: Bool = false
+        cleanupEnabled: Bool = false,
+        correctionMonitor: (any PostPasteCorrectionMonitoring)? = nil,
+        learnFromCorrections: Bool = true
     ) throws -> (
         coordinator: DictationCoordinator,
         defaults: UserDefaults,
@@ -149,6 +229,7 @@ final class DictationCoordinatorTests: XCTestCase {
         let preferences = AppPreferences(defaults: defaults)
         preferences.pauseMediaDuringDictation = true
         preferences.cleanupEnabled = cleanupEnabled
+        preferences.learnFromCorrections = learnFromCorrections
 
         let coordinator = DictationCoordinator(
             audio: audio,
@@ -162,7 +243,8 @@ final class DictationCoordinatorTests: XCTestCase {
             preferences: preferences,
             permissions: GrantedMicrophonePermission(),
             mediaPlayback: media,
-            soundPlayer: nil
+            soundPlayer: nil,
+            correctionMonitor: correctionMonitor
         )
         return (coordinator, defaults, suiteName)
     }
@@ -338,5 +420,60 @@ private final class RecordingPasteService: PasteService {
         restoringClipboard: Bool
     ) {
         events.append("paste")
+    }
+}
+
+@MainActor
+private final class CancellablePasteService: PasteService {
+    private let events: LockedEventRecorder
+
+    init(events: LockedEventRecorder) {
+        self.events = events
+    }
+
+    func paste(
+        _ text: String,
+        targetProcessIdentifier: pid_t?,
+        restoringClipboard: Bool
+    ) async throws {
+        events.append("paste-start")
+        try await Task.sleep(for: .seconds(5))
+        events.append("paste-completed")
+    }
+}
+
+@MainActor
+private final class RecordingCorrectionMonitor:
+    PostPasteCorrectionMonitoring
+{
+    private let events: LockedEventRecorder
+    private let id = UUID()
+    private(set) var pastedText: String?
+
+    init(events: LockedEventRecorder) {
+        self.events = events
+    }
+
+    func prepare(
+        targetProcessIdentifier: pid_t?,
+        targetBundleIdentifier: String?,
+        excludedBundleIdentifiers: Set<String>
+    ) -> UUID? {
+        events.append("learning-prepare")
+        return id
+    }
+
+    func start(
+        preparationID: UUID,
+        pastedText: String,
+        onEditedText: @escaping @MainActor (String, String) -> Void
+    ) {
+        XCTAssertEqual(preparationID, id)
+        self.pastedText = pastedText
+        events.append("learning-start")
+    }
+
+    func cancel() {
+        events.append("learning-cancel")
     }
 }

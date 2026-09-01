@@ -29,6 +29,7 @@ final class SystemPasteService: PasteService {
         let snapshot = PasteboardSnapshot.capture(from: pasteboard)
         pasteboard.clearContents()
         guard pasteboard.setString(text, forType: .string) else {
+            snapshot.restore(to: pasteboard)
             throw WhisprLocalError.pasteFailed
         }
 
@@ -58,8 +59,15 @@ final class SystemPasteService: PasteService {
         }
 
         if restoringClipboard {
-            try? await Task.sleep(for: .milliseconds(350))
-            snapshot.restore(to: pasteboard)
+            do {
+                try await Task.sleep(for: .milliseconds(350))
+                snapshot.restore(to: pasteboard)
+            } catch {
+                // The paste event has already been posted. Always put the user's
+                // clipboard back before making cancellation terminal.
+                snapshot.restore(to: pasteboard)
+                throw CancellationError()
+            }
         }
     }
 }

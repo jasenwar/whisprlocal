@@ -3,6 +3,7 @@ import SwiftUI
 
 struct DictionaryView: View {
     @Bindable var store: DictionaryStore
+    @Bindable var preferences: AppPreferences
     @State private var term = ""
     @State private var editor: DictionaryEditorDraft?
     @State private var entryPendingDeletion: DictionaryEntry?
@@ -14,6 +15,41 @@ struct DictionaryView: View {
 
             Text("Keep names, products, and specialized words spelled the way you prefer.")
                 .foregroundStyle(.secondary)
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text("Learn from corrections")
+                            .fontWeight(.medium)
+                        Spacer()
+                        Toggle(
+                            "Learn from corrections",
+                            isOn: $preferences.learnFromCorrections
+                        )
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                    }
+                    Text("After a paste, WhisprLocal briefly checks that exact text for high-confidence spelling changes. Secure and unsupported fields are skipped, and the latest learned batch can be undone here.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(4)
+            }
+
+            if let notice = store.learnedNotice {
+                HStack {
+                    Text(notice)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Undo") {
+                        Task { await store.undoLatestLearning() }
+                    }
+                    .disabled(!store.canUndoLatestLearning)
+                }
+            }
 
             HStack {
                 TextField("Name or preferred spelling", text: $term)
@@ -51,6 +87,7 @@ struct DictionaryView: View {
             }
         }
         .padding()
+        .navigationTitle("Dictionary")
         .sheet(item: $editor) { draft in
             DictionaryEntryEditor(draft: draft) { savedDraft in
                 save(savedDraft)
@@ -125,6 +162,11 @@ private struct DictionaryEntryRow: View {
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(.secondary)
                     }
+                    if entry.source == .learnedCorrection {
+                        sourceBadge("Learned")
+                    } else if entry.source == .suggestion {
+                        sourceBadge("Suggested")
+                    }
                 }
                 if !entry.spokenAliases.isEmpty {
                     Text("Also heard as: \(entry.spokenAliases.joined(separator: ", "))")
@@ -140,6 +182,16 @@ private struct DictionaryEntryRow: View {
         }
         .opacity(entry.isEnabled ? 1 : 0.58)
         .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func sourceBadge(_ title: String) -> some View {
+        Text(title)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(.secondary.opacity(0.12), in: Capsule())
     }
 }
 

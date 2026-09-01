@@ -27,12 +27,17 @@ pasting or creating history.
 Personal Vocabulary gives the same preferred spellings to both the Groq and
 local transcription paths. Each entry can include spoken or commonly misheard
 variants, be pinned for extra local recognition weight, be disabled without
-deletion, or be limited to one running application. After transcription,
+deletion, or be limited to one running application. With **Learn from
+corrections** enabled, WhisprLocal can also learn a high-confidence spelling,
+name, acronym, or compact phrase correction when you edit the text immediately
+after it is pasted. Observation is brief and read-only, secure or unsupported
+fields are skipped, and the Dictionary provides an immediate Undo action.
+After transcription,
 WhisprLocal applies those variants deterministically before cleanup, so they
 still work in Fully Local mode and when cleanup is off. History can suggest
-useful name, spelling, and acronym corrections, but nothing is learned until
-you explicitly choose **Teach**. Snippet triggers are protected through cleanup
-and expanded once afterward using Unicode-aware whole-phrase matching.
+useful name, spelling, and acronym corrections for manual teaching as well.
+Snippet triggers are protected through cleanup and expanded once afterward
+using Unicode-aware whole-phrase matching.
 
 The microphone setting offers **System Default** and **Mac Microphone**.
 System Default follows macOS Sound settings, including AirPods. Mac Microphone

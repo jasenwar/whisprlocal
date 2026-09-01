@@ -122,7 +122,8 @@ final class AppEnvironment {
             permissions: permissions,
             mediaPlayback: MediaPlaybackService(),
             soundPlayer: soundPlayer,
-            contextService: groqContext
+            contextService: groqContext,
+            correctionMonitor: AccessibilityPostPasteCorrectionMonitor()
         )
         coordinator.onStateChange = { [weak overlay, weak preferences] state in
             guard let preferences else { return }
@@ -430,6 +431,7 @@ final class AppEnvironment {
 
     func shutdown() async {
         monitor.stop()
+        await coordinator.shutdown()
         await cleanupEngine.shutdown()
     }
 }

@@ -34,6 +34,7 @@ struct HistoryView: View {
                 )
             }
         }
+        .navigationTitle("History")
         .task {
             await store.reload()
             selection = selection ?? store.records.first?.id

@@ -56,7 +56,7 @@ struct SettingsRootView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .alert(
-            "Raw transcript used",
+            "WhisprLocal notice",
             isPresented: Binding(
                 get: { environment.coordinator.warningMessage != nil },
                 set: { if !$0 { environment.coordinator.warningMessage = nil } }
@@ -85,7 +85,10 @@ struct SettingsRootView: View {
                 dictionaryStore: environment.dictionaryStore
             )
         case .dictionary:
-            DictionaryView(store: environment.dictionaryStore)
+            DictionaryView(
+                store: environment.dictionaryStore,
+                preferences: environment.preferences
+            )
         case .snippets:
             SnippetsView(store: environment.snippetStore)
         case .advanced:

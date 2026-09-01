@@ -3,6 +3,7 @@ import Foundation
 enum DetachedDeadline {
     static func run<Value: Sendable>(
         timeout: Duration,
+        timeoutError: WhisprLocalError = .cleanupTimedOut,
         onOperationFinished: @escaping @Sendable () async -> Void = {},
         operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
@@ -40,7 +41,7 @@ enum DetachedDeadline {
         case .failure(let message):
             throw DetachedOperationError(message: message)
         case .timedOut:
-            throw WhisprLocalError.cleanupTimedOut
+            throw timeoutError
         case .cancelled:
             throw CancellationError()
         }

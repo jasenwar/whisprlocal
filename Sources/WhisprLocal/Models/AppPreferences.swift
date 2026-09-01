@@ -61,6 +61,7 @@ final class AppPreferences {
             "excludedContextBundleIdentifiers"
         static let customGroqCleanupPrompt = "customGroqCleanupPrompt"
         static let customGroqContextPrompt = "customGroqContextPrompt"
+        static let learnFromCorrections = "learnFromCorrections"
     }
 
     private let defaults: UserDefaults
@@ -178,6 +179,14 @@ final class AppPreferences {
         }
     }
 
+    /// Allows the brief, read-only post-paste correction observer to learn safe
+    /// vocabulary mappings. It is intentionally independent of cleanup settings.
+    var learnFromCorrections: Bool {
+        didSet {
+            defaults.set(learnFromCorrections, forKey: Key.learnFromCorrections)
+        }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         defaults.register(defaults: [
@@ -205,6 +214,7 @@ final class AppPreferences {
             ],
             Key.customGroqCleanupPrompt: "",
             Key.customGroqContextPrompt: "",
+            Key.learnFromCorrections: true,
         ])
         autoPaste = defaults.bool(forKey: Key.autoPaste)
         keepLastDictationOnClipboard = defaults.bool(
@@ -247,5 +257,6 @@ final class AppPreferences {
         customGroqContextPrompt = defaults.string(
             forKey: Key.customGroqContextPrompt
         ) ?? ""
+        learnFromCorrections = defaults.bool(forKey: Key.learnFromCorrections)
     }
 }

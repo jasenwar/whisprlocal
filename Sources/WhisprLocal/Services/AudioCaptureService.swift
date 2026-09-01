@@ -9,6 +9,11 @@ private let audioCaptureLogger = Logger(
     category: "AudioCapture"
 )
 
+enum AudioCaptureRuntimeConfiguration {
+    static let maximumRecordingDuration: Duration = .seconds(600)
+    static let maximumRecordingSeconds: Double = 600
+}
+
 protocol AudioCapturing: Sendable {
     func start(mode: MicrophoneMode) async throws -> AudioCaptureStartInfo
     func stop() async -> [Float]
@@ -108,7 +113,7 @@ actor AudioCaptureService: AudioCapturing {
         self.engine = nil
         recordingGeneration = nil
 
-        let captured = accumulator.snapshot()
+        let captured = accumulator.takeSnapshot()
         let resampled = Self.resample(
             captured.samples,
             from: captured.sampleRate,
@@ -163,7 +168,11 @@ actor AudioCaptureService: AudioCapturing {
         audioCaptureLogger.info(
             "Preparing capture: mode=\(mode.rawValue, privacy: .public) device=\(device.name, privacy: .public) attempt=\(attempt, privacy: .public) rate=\(format.sampleRate, privacy: .public) channels=\(format.channelCount, privacy: .public) format=\(String(describing: format.commonFormat), privacy: .public) interleaved=\(format.isInterleaved, privacy: .public)"
         )
-        accumulator.reset(sampleRate: format.sampleRate)
+        accumulator.reset(
+            sampleRate: format.sampleRate,
+            maximumDuration: AudioCaptureRuntimeConfiguration
+                .maximumRecordingSeconds
+        )
         let readiness = AudioCaptureReadinessGate()
         let tapHandler = AudioTapHandler(
             accumulator: accumulator,
@@ -516,17 +525,27 @@ final class AudioSampleAccumulator: @unchecked Sendable {
     private let lock = NSLock()
     private var samples: [Float] = []
     private var sampleRate: Double = 16_000
+    private var maximumSamples = Int.max
 
-    func reset(sampleRate: Double) {
+    func reset(sampleRate: Double, maximumDuration: Double = 600) {
         lock.withLock {
-            samples.removeAll(keepingCapacity: true)
+            samples = []
             self.sampleRate = sampleRate
+            maximumSamples = max(
+                1,
+                Int((sampleRate * maximumDuration).rounded(.down))
+            )
+            samples.reserveCapacity(
+                min(maximumSamples, Int(sampleRate * 30))
+            )
         }
     }
 
     func append(_ input: UnsafeBufferPointer<Float>) {
         lock.withLock {
-            samples.append(contentsOf: input)
+            let remaining = maximumSamples - samples.count
+            guard remaining > 0 else { return }
+            samples.append(contentsOf: input.prefix(remaining))
         }
     }
 
@@ -536,9 +555,20 @@ final class AudioSampleAccumulator: @unchecked Sendable {
         }
     }
 
+    func takeSnapshot() -> AudioSampleSnapshot {
+        lock.withLock {
+            let snapshot = AudioSampleSnapshot(
+                samples: samples,
+                sampleRate: sampleRate
+            )
+            samples = []
+            return snapshot
+        }
+    }
+
     func clear() {
         lock.withLock {
-            samples.removeAll(keepingCapacity: true)
+            samples = []
         }
     }
 }

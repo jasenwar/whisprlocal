@@ -96,7 +96,13 @@ contention is distinguishable from model latency.
 Dictionary schema migrations are transactional and preserve legacy terms.
 Each entry stores a preferred spelling, reviewed spoken variants, term type,
 enabled state, pinned priority, optional application scope, source, and local
-usage metadata. No vocabulary is learned automatically.
+usage metadata. When the user enables **Learn from corrections**, a read-only
+Accessibility monitor briefly follows only the exact range that WhisprLocal
+just pasted. High-confidence spelling, name, acronym, and compact phrase edits
+can become global dictionary aliases. Secure fields, unsupported editors,
+focus drift, ambiguous rewrites, grammar-only changes, numbers, URLs, paths,
+and commands fail closed. Surrounding document text is neither logged nor
+persisted, and the latest learned batch can be undone from Dictionary.
 
 ## Network boundary
 

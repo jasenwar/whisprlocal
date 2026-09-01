@@ -32,6 +32,7 @@ final class DictationCoordinator {
     private let mediaPlayback: any MediaPlaybackControlling
     private let soundPlayer: SoundEffectPlayer?
     private let contextService: GroqContextService?
+    private let correctionMonitor: (any PostPasteCorrectionMonitoring)?
     private var targetApplication: NSRunningApplication?
     private var capturePreparationTask: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?
@@ -40,6 +41,8 @@ final class DictationCoordinator {
     private var contextPreparationTask: Task<DictationContext?, Never>?
     private var mediaPauseTask: Task<Void, Never>?
     private var readyCueTask: Task<Void, Never>?
+    private var recordingLimitTask: Task<Void, Never>?
+    private var correctionPreparationID: UUID?
     private var recordingToken = UUID()
     private var listeningRequestedAt: ContinuousClock.Instant?
 
@@ -56,7 +59,8 @@ final class DictationCoordinator {
         permissions: any DictationPermissionChecking,
         mediaPlayback: any MediaPlaybackControlling,
         soundPlayer: SoundEffectPlayer?,
-        contextService: GroqContextService? = nil
+        contextService: GroqContextService? = nil,
+        correctionMonitor: (any PostPasteCorrectionMonitoring)? = nil
     ) {
         self.audio = audio
         self.transcriptionEngine = transcriptionEngine
@@ -75,10 +79,15 @@ final class DictationCoordinator {
         self.mediaPlayback = mediaPlayback
         self.soundPlayer = soundPlayer
         self.contextService = contextService
+        self.correctionMonitor = correctionMonitor
     }
 
     func beginListening() {
         guard state == .idle else { return }
+        correctionMonitor?.cancel()
+        correctionPreparationID = nil
+        recordingLimitTask?.cancel()
+        recordingLimitTask = nil
         targetApplication = NSWorkspace.shared.frontmostApplication
         recordingToken = UUID()
         let token = recordingToken
@@ -97,6 +106,8 @@ final class DictationCoordinator {
             "Fn release received; captureReady=\(self.state == .listening, privacy: .public)"
         )
         readyCueTask?.cancel()
+        recordingLimitTask?.cancel()
+        recordingLimitTask = nil
         guard state == .listening else {
             dictationLogger.info(
                 "Fn release occurred before capture became active; cancelling short dictation"
@@ -115,6 +126,7 @@ final class DictationCoordinator {
         endMediaPause(for: recordingToken)
         transition(to: .transcribing)
         playStopCue()
+        correctionPreparationID = prepareCorrectionLearning()
         let token = recordingToken
         let snippets = snippetStore.snippets
         let vocabularyPlan = VocabularyPlanner.makePlan(
@@ -184,11 +196,60 @@ final class DictationCoordinator {
         contextPreparationTask?.cancel()
         contextPreparationTask = nil
         readyCueTask?.cancel()
+        recordingLimitTask?.cancel()
+        recordingLimitTask = nil
+        correctionMonitor?.cancel()
+        correctionPreparationID = nil
         Task { [audio] in await audio.cancel() }
         endMediaPause(for: recordingToken)
         transition(to: .cancelled)
         playStopCue()
         settleToIdle()
+    }
+
+    func shutdown() async {
+        let token = recordingToken
+        recordingToken = UUID()
+
+        let captureTask = capturePreparationTask
+        let activeProcessingTask = processingTask
+        let activeContextTask = contextPreparationTask
+        let activeTranscriptionWarmup = transcriptionWarmupTask
+        let activeCleanupWarmup = cleanupWarmupTask
+        let activeMediaPause = mediaPauseTask
+
+        capturePreparationTask = nil
+        processingTask = nil
+        contextPreparationTask = nil
+        transcriptionWarmupTask = nil
+        cleanupWarmupTask = nil
+        mediaPauseTask = nil
+
+        captureTask?.cancel()
+        activeProcessingTask?.cancel()
+        activeContextTask?.cancel()
+        activeTranscriptionWarmup?.cancel()
+        activeCleanupWarmup?.cancel()
+        readyCueTask?.cancel()
+        readyCueTask = nil
+        recordingLimitTask?.cancel()
+        recordingLimitTask = nil
+        correctionMonitor?.cancel()
+        correctionPreparationID = nil
+
+        await audio.cancel()
+        if let captureTask { await captureTask.value }
+        if let activeProcessingTask { await activeProcessingTask.value }
+        if let activeContextTask { _ = await activeContextTask.value }
+        if let activeTranscriptionWarmup {
+            await activeTranscriptionWarmup.value
+        }
+        if let activeCleanupWarmup { await activeCleanupWarmup.value }
+        if let activeMediaPause {
+            await activeMediaPause.value
+            await mediaPlayback.endDictation(token)
+        }
+        dictationLogger.info("Dictation lifecycle shut down")
     }
 
     private func receivePipelineProgress(
@@ -217,7 +278,6 @@ final class DictationCoordinator {
               state == .transcribing || state == .correcting else {
             return
         }
-        processingTask = nil
         let finalHandoffSeconds = (
             ContinuousClock.now - output.completedAt
         ).timeInterval
@@ -255,6 +315,17 @@ final class DictationCoordinator {
                     restoringClipboard:
                         !preferences.keepLastDictationOnClipboard
                 )
+                try Task.checkCancellation()
+                guard token == recordingToken,
+                      state == .pasting else {
+                    throw CancellationError()
+                }
+                startCorrectionLearning(
+                    preparationID: correctionPreparationID,
+                    pastedText: pasteText,
+                    token: token
+                )
+                correctionPreparationID = nil
                 dictationLogger.info(
                     "Paste stage completed in \((ContinuousClock.now - pasteStarted).timeInterval, format: .fixed(precision: 3), privacy: .public)s"
                 )
@@ -264,6 +335,15 @@ final class DictationCoordinator {
                 transition(to: .succeeded)
             }
 
+        } catch is CancellationError {
+            finishCancelledPipeline(token: token)
+            return
+        } catch {
+            fail(error)
+            return
+        }
+
+        do {
             _ = try await database.insertTranscription(
                 rawText: output.transcript.text,
                 correctedText: output.correctedText,
@@ -273,21 +353,27 @@ final class DictationCoordinator {
                 cleanupEngine: output.cleanupEngineIdentifier,
                 status: status
             )
-            await dictionaryStore.recordUsage(
-                entryIDs: output.appliedVocabularyEntryIDs
-            )
-            await historyStore.reload()
-            settleToIdle()
-        } catch is CancellationError {
-            finishCancelledPipeline(token: token)
         } catch {
-            fail(error)
+            dictationLogger.error(
+                "Dictation completed but history persistence failed: \(error.localizedDescription, privacy: .public)"
+            )
+            warningMessage = preferences.autoPaste
+                ? "Your text was pasted, but WhisprLocal could not save this item to History."
+                : "Dictation completed, but WhisprLocal could not save this item to History."
         }
+        await dictionaryStore.recordUsage(
+            entryIDs: output.appliedVocabularyEntryIDs
+        )
+        await historyStore.reload()
+        processingTask = nil
+        settleToIdle()
     }
 
     private func finishCancelledPipeline(token: UUID) {
         guard token == recordingToken, state.isBusy else { return }
         processingTask = nil
+        correctionMonitor?.cancel()
+        correctionPreparationID = nil
         transition(to: .cancelled)
         settleToIdle()
     }
@@ -296,6 +382,61 @@ final class DictationCoordinator {
         guard token == recordingToken, state.isBusy else { return }
         processingTask = nil
         fail(message: message)
+    }
+
+    private func prepareCorrectionLearning() -> UUID? {
+        guard preferences.autoPaste,
+              preferences.learnFromCorrections,
+              let correctionMonitor else {
+            return nil
+        }
+        let excludedApplications = Set(
+            preferences.excludedContextBundleIdentifiers.map {
+                $0.lowercased()
+            }
+        )
+        let started = ContinuousClock.now
+        let preparationID = correctionMonitor.prepare(
+            targetProcessIdentifier: targetApplication?.processIdentifier,
+            targetBundleIdentifier: targetApplication?.bundleIdentifier,
+            excludedBundleIdentifiers: excludedApplications
+        )
+        dictationLogger.info(
+            "Correction learning preparation completed in \((ContinuousClock.now - started).timeInterval, format: .fixed(precision: 3), privacy: .public)s available=\(preparationID != nil, privacy: .public)"
+        )
+        return preparationID
+    }
+
+    private func startCorrectionLearning(
+        preparationID: UUID?,
+        pastedText: String,
+        token: UUID
+    ) {
+        guard let preparationID,
+              let correctionMonitor else {
+            return
+        }
+        correctionMonitor.start(
+            preparationID: preparationID,
+            pastedText: pastedText
+        ) { [weak self] pasted, edited in
+            guard let self,
+                  token == recordingToken,
+                  preferences.learnFromCorrections else {
+                return
+            }
+            let corrections = PostPasteCorrectionLearningAnalyzer.mappings(
+                pasted: pasted,
+                edited: edited
+            )
+            guard !corrections.isEmpty else { return }
+            dictationLogger.info(
+                "Post-paste edit produced \(corrections.count, privacy: .public) safe dictionary correction(s)"
+            )
+            Task { @MainActor [weak self] in
+                await self?.dictionaryStore.learnCorrections(corrections)
+            }
+        }
     }
 
     private func showCleanupFallbackWarning(_ description: String) {
@@ -319,6 +460,10 @@ final class DictationCoordinator {
         contextPreparationTask?.cancel()
         contextPreparationTask = nil
         readyCueTask?.cancel()
+        recordingLimitTask?.cancel()
+        recordingLimitTask = nil
+        correctionMonitor?.cancel()
+        correctionPreparationID = nil
         endMediaPause(for: recordingToken)
         transition(to: .failed(message))
         settleToIdle()
@@ -374,6 +519,7 @@ final class DictationCoordinator {
             }
             transition(to: .listening)
             scheduleReadyCue(for: token)
+            scheduleRecordingLimit(for: token)
             startWarmups()
             return true
         } catch is CancellationError {
@@ -409,6 +555,27 @@ final class DictationCoordinator {
                 return
             }
             soundPlayer?.playStartCue()
+        }
+    }
+
+    private func scheduleRecordingLimit(for token: UUID) {
+        recordingLimitTask?.cancel()
+        recordingLimitTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(
+                for: AudioCaptureRuntimeConfiguration.maximumRecordingDuration
+            )
+            guard let self,
+                  !Task.isCancelled,
+                  token == recordingToken,
+                  state == .listening else {
+                return
+            }
+            dictationLogger.notice(
+                "Maximum recording duration reached; finishing dictation"
+            )
+            warningMessage =
+                "WhisprLocal automatically finished the dictation at the 10-minute safety limit."
+            finishListening()
         }
     }
 

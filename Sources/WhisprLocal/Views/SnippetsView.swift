@@ -123,6 +123,7 @@ struct SnippetsView: View {
             }
         }
         .padding()
+        .navigationTitle("Snippets")
         .task { await store.reload() }
     }
 

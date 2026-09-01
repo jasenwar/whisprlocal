@@ -157,6 +157,35 @@ final class GroqHybridTests: XCTestCase {
         XCTAssertEqual(localCount, 1)
     }
 
+    func testStalledGroqTranscriptionFallsBackWithinDeadline() async throws {
+        let local = StubTranscriptionEngine(text: "local transcript")
+        let engine = HybridTranscriptionEngine(
+            localEngine: local,
+            client: GroqAPIClient(
+                apiKeyProvider: { "gsk_test" },
+                transport: DelayedGroqTransport(delay: .seconds(2))
+            ),
+            availability: makeAvailabilityStore(),
+            configuration: configuration(mode: .groqPreferred),
+            remoteDeadline: { _, _ in .milliseconds(40) }
+        )
+
+        let started = ContinuousClock.now
+        let transcript = try await engine.transcribe(
+            samples: [0.1],
+            sampleRate: 16_000,
+            hotwords: []
+        )
+
+        XCTAssertEqual(transcript.text, "local transcript")
+        XCTAssertLessThan(
+            (ContinuousClock.now - started).timeInterval,
+            0.5
+        )
+        let localCount = await local.transcriptionCount
+        XCTAssertEqual(localCount, 1)
+    }
+
     func testGroqCleanupReturnsValidatedTranscript() async throws {
         let transport = MockGroqTransport(responses: [
             .success(
@@ -590,6 +619,21 @@ private final class MockGroqTransport: GroqHTTPTransport, @unchecked Sendable {
             )!
             return (response.body, http)
         }
+    }
+}
+
+private struct DelayedGroqTransport: GroqHTTPTransport {
+    let delay: Duration
+
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        try? await Task.sleep(for: delay)
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: nil
+        )!
+        return (Data(#"{"text":"late cloud transcript"}"#.utf8), response)
     }
 }
 

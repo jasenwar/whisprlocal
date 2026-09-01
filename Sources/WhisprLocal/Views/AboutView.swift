@@ -25,6 +25,7 @@ struct AboutView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+        .navigationTitle("About")
     }
 
     private var versionText: String {

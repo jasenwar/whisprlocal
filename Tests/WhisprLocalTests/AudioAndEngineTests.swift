@@ -139,6 +139,17 @@ final class AudioAndEngineTests: XCTestCase {
         XCTAssertEqual(captured.sampleRate, 48_000)
     }
 
+    func testAudioAccumulatorCapsSamplesAndReleasesAfterTake() {
+        let accumulator = AudioSampleAccumulator()
+        accumulator.reset(sampleRate: 4, maximumDuration: 1)
+        let input = [Float](repeating: 0.25, count: 10)
+        input.withUnsafeBufferPointer { accumulator.append($0) }
+
+        let captured = accumulator.takeSnapshot()
+        XCTAssertEqual(captured.samples.count, 4)
+        XCTAssertTrue(accumulator.snapshot().samples.isEmpty)
+    }
+
     func testCaptureReadinessWaitsForFirstBuffer() async {
         let gate = AudioCaptureReadinessGate()
         Task {

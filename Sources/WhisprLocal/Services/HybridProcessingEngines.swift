@@ -29,18 +29,24 @@ actor HybridTranscriptionEngine: TranscriptionEngine {
     private let availability: GroqAvailabilityStore
     private let configuration:
         @MainActor @Sendable () -> GroqRuntimeConfiguration
+    private let remoteDeadline:
+        @Sendable (_ sampleCount: Int, _ sampleRate: Int) -> Duration
 
     init(
         localEngine: any TranscriptionEngine,
         client: GroqAPIClient,
         availability: GroqAvailabilityStore,
         configuration: @escaping
-            @MainActor @Sendable () -> GroqRuntimeConfiguration
+            @MainActor @Sendable () -> GroqRuntimeConfiguration,
+        remoteDeadline: @escaping
+            @Sendable (_ sampleCount: Int, _ sampleRate: Int) -> Duration =
+                HybridTranscriptionEngine.defaultRemoteDeadline
     ) {
         self.localEngine = localEngine
         self.client = client
         self.availability = availability
         self.configuration = configuration
+        self.remoteDeadline = remoteDeadline
     }
 
     func transcribe(
@@ -76,12 +82,37 @@ actor HybridTranscriptionEngine: TranscriptionEngine {
 
         let started = ContinuousClock.now
         do {
-            let text = try await client.transcribe(
-                samples: samples,
-                sampleRate: sampleRate,
-                hotwords: hotwordPhrases.map(\.text),
-                model: settings.transcriptionModel
+            let deadline = remoteDeadline(samples.count, sampleRate)
+            hybridEngineLogger.info(
+                "Groq transcription started with end-to-end deadline=\(deadline.timeInterval, format: .fixed(precision: 3), privacy: .public)s"
             )
+            let result: Result<String, GroqAPIError> =
+                try await DetachedDeadline.run(
+                    timeout: deadline,
+                    timeoutError: .transcriptionTimedOut
+                ) {
+                    do {
+                        return .success(try await self.client.transcribe(
+                            samples: samples,
+                            sampleRate: sampleRate,
+                            hotwords: hotwordPhrases.map(\.text),
+                            model: settings.transcriptionModel
+                        ))
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch let error as GroqAPIError {
+                        return .failure(error)
+                    } catch {
+                        return .failure(.requestFailed)
+                    }
+                }
+            let text: String
+            switch result {
+            case .success(let value):
+                text = value
+            case .failure(let error):
+                throw error
+            }
             await availability.recordSuccess(scope)
             return Transcript(
                 text: text,
@@ -94,6 +125,17 @@ actor HybridTranscriptionEngine: TranscriptionEngine {
             await availability.recordFailure(error, scope: scope)
             hybridEngineLogger.error(
                 "Groq transcription fell back locally: \(error.localizedDescription, privacy: .public)"
+            )
+            await localEngine.prewarm()
+            return try await localEngine.transcribe(
+                samples: samples,
+                sampleRate: sampleRate,
+                hotwordPhrases: hotwordPhrases
+            )
+        } catch WhisprLocalError.transcriptionTimedOut {
+            await availability.recordFailure(.timedOut, scope: scope)
+            hybridEngineLogger.error(
+                "Groq transcription exceeded its deadline and fell back locally"
             )
             await localEngine.prewarm()
             return try await localEngine.transcribe(
@@ -128,6 +170,16 @@ actor HybridTranscriptionEngine: TranscriptionEngine {
 
     func releaseIfIdle() async {
         await localEngine.releaseIfIdle()
+    }
+
+    nonisolated static func defaultRemoteDeadline(
+        sampleCount: Int,
+        sampleRate: Int
+    ) -> Duration {
+        let audioSeconds = sampleRate > 0
+            ? Double(sampleCount) / Double(sampleRate)
+            : 0
+        return .seconds(min(12, max(6, 4.5 + audioSeconds * 0.25)))
     }
 }
 

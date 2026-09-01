@@ -23,11 +23,22 @@ final class AppContextCaptureService {
         excludedBundleIdentifiers: Set<String>,
         targetProcessIdentifier: pid_t? = nil
     ) async -> CapturedAppContext? {
-        guard level != .off,
-              let application = targetProcessIdentifier.flatMap({
-                  NSRunningApplication(processIdentifier: $0)
-              }) ?? NSWorkspace.shared.frontmostApplication else {
+        guard level != .off else {
             return nil
+        }
+        let application: NSRunningApplication
+        if let targetProcessIdentifier {
+            guard let capturedTarget = NSRunningApplication(
+                processIdentifier: targetProcessIdentifier
+            ), !capturedTarget.isTerminated else {
+                return nil
+            }
+            application = capturedTarget
+        } else {
+            guard let frontmost = NSWorkspace.shared.frontmostApplication else {
+                return nil
+            }
+            application = frontmost
         }
 
         let bundleIdentifier = application.bundleIdentifier
@@ -46,6 +57,13 @@ final class AppContextCaptureService {
         let appElement = AXUIElementCreateApplication(
             application.processIdentifier
         )
+        let focusedElement = accessibilityElement(
+            from: appElement,
+            attribute: kAXFocusedUIElementAttribute as CFString
+        )
+        guard focusedElement.map({ !isSecure($0) }) ?? true else {
+            return nil
+        }
         let focusedWindow = accessibilityElement(
             from: appElement,
             attribute: kAXFocusedWindowAttribute as CFString
@@ -56,10 +74,6 @@ final class AppContextCaptureService {
                 attribute: kAXTitleAttribute as CFString
             )
         } ?? application.localizedName
-        let focusedElement = accessibilityElement(
-            from: appElement,
-            attribute: kAXFocusedUIElementAttribute as CFString
-        )
         let selectedText = focusedElement.flatMap {
             accessibilityString(
                 from: $0,
@@ -253,6 +267,13 @@ final class AppContextCaptureService {
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return String(trimmed.prefix(4_000))
+    }
+
+    private func isSecure(_ element: AXUIElement) -> Bool {
+        accessibilityString(
+            from: element,
+            attribute: kAXSubroleAttribute as CFString
+        ) == kAXSecureTextFieldSubrole as String
     }
 
     private func accessibilityPoint(

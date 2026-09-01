@@ -39,6 +39,11 @@ actor LocalDatabase {
             throw DatabaseError.open("SQLite returned no database handle.")
         }
         self.database = SQLiteHandle(database)
+        guard sqlite3_busy_timeout(database, 1_500) == SQLITE_OK else {
+            throw DatabaseError.open(
+                String(cString: sqlite3_errmsg(database))
+            )
+        }
         try Self.execute(on: database, sql: "PRAGMA journal_mode=WAL;")
         try Self.execute(on: database, sql: "PRAGMA foreign_keys=ON;")
         try Self.migrate(on: database)
@@ -84,7 +89,8 @@ actor LocalDatabase {
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int(statement, 1, Int32(limit))
         var records: [TranscriptionRecord] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
+        var result = sqlite3_step(statement)
+        while result == SQLITE_ROW {
             records.append(TranscriptionRecord(
                 id: sqlite3_column_int64(statement, 0),
                 rawText: string(statement, 1),
@@ -96,7 +102,9 @@ actor LocalDatabase {
                 cleanupEngine: string(statement, 7),
                 status: string(statement, 8)
             ))
+            result = sqlite3_step(statement)
         }
+        try requireDone(result)
         return records
     }
 
@@ -227,14 +235,17 @@ actor LocalDatabase {
         """)
         defer { sqlite3_finalize(statement) }
         var values: [Snippet] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
+        var result = sqlite3_step(statement)
+        while result == SQLITE_ROW {
             values.append(Snippet(
                 id: sqlite3_column_int64(statement, 0),
                 trigger: string(statement, 1),
                 replacement: string(statement, 2),
                 createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 3))
             ))
+            result = sqlite3_step(statement)
         }
+        try requireDone(result)
         return values
     }
 
@@ -273,7 +284,8 @@ actor LocalDatabase {
             bind(value, at: Int32(offset + 1), in: statement)
         }
         var entries: [DictionaryEntry] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
+        var result = sqlite3_step(statement)
+        while result == SQLITE_ROW {
             let canonicalTerm = string(statement, 1)
             entries.append(DictionaryEntry(
                 id: sqlite3_column_int64(statement, 0),
@@ -289,7 +301,9 @@ actor LocalDatabase {
                 createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 10)),
                 updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 11))
             ))
+            result = sqlite3_step(statement)
         }
+        try requireDone(result)
         return entries
     }
 
@@ -306,6 +320,14 @@ actor LocalDatabase {
         defer { sqlite3_finalize(statement) }
         bindings(statement)
         try stepDone(statement)
+    }
+
+    private func requireDone(_ result: Int32) throws {
+        guard result == SQLITE_DONE else {
+            throw DatabaseError.execute(
+                String(cString: sqlite3_errmsg(handle))
+            )
+        }
     }
 
     private func prepare(_ sql: String) throws -> OpaquePointer? {

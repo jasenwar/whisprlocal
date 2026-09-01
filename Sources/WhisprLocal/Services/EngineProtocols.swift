@@ -68,6 +68,7 @@ enum WhisprLocalError: LocalizedError {
     case modelMissing
     case modelInvalid(String)
     case transcriptionFailed
+    case transcriptionTimedOut
     case cleanupTimedOut
     case cleanupModelMissing
     case cleanupRuntimeUnavailable
@@ -84,6 +85,7 @@ enum WhisprLocalError: LocalizedError {
         case .modelMissing: "Parakeet model is not installed."
         case .modelInvalid(let reason): "Parakeet model is invalid: \(reason)"
         case .transcriptionFailed: "Local transcription failed."
+        case .transcriptionTimedOut: "Groq transcription timed out."
         case .cleanupTimedOut: "Local cleanup timed out."
         case .cleanupModelMissing: "The local cleanup model is not installed."
         case .cleanupRuntimeUnavailable: "The local cleanup runtime could not start."

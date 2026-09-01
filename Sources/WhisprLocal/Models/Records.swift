@@ -35,6 +35,7 @@ enum DictionaryEntryKind: String, CaseIterable, Codable, Sendable, Identifiable 
 enum DictionaryEntrySource: String, CaseIterable, Codable, Sendable {
     case manual
     case suggestion
+    case learnedCorrection
 }
 
 /// A preferred spelling and the ways it may be spoken or misheard.
