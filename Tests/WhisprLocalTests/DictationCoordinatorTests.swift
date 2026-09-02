@@ -123,6 +123,7 @@ final class DictationCoordinatorTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(80))
         XCTAssertEqual(fixture.coordinator.state, .succeeded)
         XCTAssertTrue(events.values.contains("paste"))
+        XCTAssertEqual(paste.restorationRequests, [true])
     }
 
     @MainActor
@@ -179,6 +180,38 @@ final class DictationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testPersistedCorrectionPublishesStructuredLearningEvent() async throws {
+        let events = LockedEventRecorder()
+        let monitor = RecordingCorrectionMonitor(events: events)
+        let fixture = try makeFixture(
+            audio: FakeAudioCapture(events: events),
+            media: OrderedMediaPlayback(events: events, delay: .zero),
+            pasteService: RecordingPasteService(events: events),
+            correctionMonitor: monitor
+        )
+        defer {
+            fixture.defaults.removePersistentDomain(forName: fixture.suiteName)
+        }
+        var receivedEvent: DictionaryLearningEvent?
+        fixture.coordinator.onCorrectionLearned = { event in
+            receivedEvent = event
+        }
+
+        fixture.coordinator.beginListening()
+        try await Task.sleep(for: .milliseconds(40))
+        fixture.coordinator.finishListening()
+        try await Task.sleep(for: .milliseconds(100))
+        monitor.simulateEdit(pasted: "Jason ", edited: "Jasen ")
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(
+            receivedEvent?.corrections,
+            [CorrectionCandidate(original: "Jason", replacement: "Jasen")]
+        )
+        XCTAssertEqual(fixture.dictionaryStore.entries.first?.canonicalTerm, "Jasen")
+    }
+
+    @MainActor
     func testCancellationDuringPasteIsTerminal() async throws {
         let events = LockedEventRecorder()
         let fixture = try makeFixture(
@@ -216,6 +249,7 @@ final class DictationCoordinatorTests: XCTestCase {
         learnFromCorrections: Bool = true
     ) throws -> (
         coordinator: DictationCoordinator,
+        dictionaryStore: DictionaryStore,
         defaults: UserDefaults,
         suiteName: String
     ) {
@@ -231,6 +265,7 @@ final class DictationCoordinatorTests: XCTestCase {
         preferences.cleanupEnabled = cleanupEnabled
         preferences.learnFromCorrections = learnFromCorrections
 
+        let dictionaryStore = DictionaryStore(database: database)
         let coordinator = DictationCoordinator(
             audio: audio,
             transcriptionEngine: transcriptionEngine,
@@ -238,7 +273,7 @@ final class DictationCoordinatorTests: XCTestCase {
             pasteService: pasteService,
             database: database,
             historyStore: HistoryStore(database: database),
-            dictionaryStore: DictionaryStore(database: database),
+            dictionaryStore: dictionaryStore,
             snippetStore: SnippetStore(database: database),
             preferences: preferences,
             permissions: GrantedMicrophonePermission(),
@@ -246,7 +281,7 @@ final class DictationCoordinatorTests: XCTestCase {
             soundPlayer: nil,
             correctionMonitor: correctionMonitor
         )
-        return (coordinator, defaults, suiteName)
+        return (coordinator, dictionaryStore, defaults, suiteName)
     }
 }
 
@@ -409,6 +444,7 @@ private actor OrderedCleanupEngine: CleanupEngine {
 @MainActor
 private final class RecordingPasteService: PasteService {
     private let events: LockedEventRecorder
+    private(set) var restorationRequests: [Bool] = []
 
     init(events: LockedEventRecorder) {
         self.events = events
@@ -419,6 +455,7 @@ private final class RecordingPasteService: PasteService {
         targetProcessIdentifier: pid_t?,
         restoringClipboard: Bool
     ) {
+        restorationRequests.append(restoringClipboard)
         events.append("paste")
     }
 }
@@ -449,6 +486,7 @@ private final class RecordingCorrectionMonitor:
     private let events: LockedEventRecorder
     private let id = UUID()
     private(set) var pastedText: String?
+    private var onEditedText: (@MainActor (String, String) -> Void)?
 
     init(events: LockedEventRecorder) {
         self.events = events
@@ -470,10 +508,16 @@ private final class RecordingCorrectionMonitor:
     ) {
         XCTAssertEqual(preparationID, id)
         self.pastedText = pastedText
+        self.onEditedText = onEditedText
         events.append("learning-start")
     }
 
+    func simulateEdit(pasted: String, edited: String) {
+        onEditedText?(pasted, edited)
+    }
+
     func cancel() {
+        onEditedText = nil
         events.append("learning-cancel")
     }
 }

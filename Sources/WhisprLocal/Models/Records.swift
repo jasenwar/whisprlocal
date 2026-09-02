@@ -110,6 +110,39 @@ struct CorrectionCandidate: Identifiable, Equatable, Sendable {
     var id: String { "\(original)\u{0}\(replacement)" }
 }
 
+/// A database-confirmed batch of corrections that WhisprLocal learned.
+///
+/// Keeping the mappings structured lets transient UI show exactly what was
+/// added without parsing the longer-lived message used by Dictionary settings.
+struct DictionaryLearningEvent: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let corrections: [CorrectionCandidate]
+
+    init(
+        id: UUID = UUID(),
+        corrections: [CorrectionCandidate]
+    ) {
+        self.id = id
+        self.corrections = corrections
+    }
+
+    var title: String { "Added to Dictionary" }
+
+    var detail: String {
+        guard let first = corrections.first else { return "" }
+        let mapping = "\(first.original) → \(first.replacement)"
+        let remaining = corrections.count - 1
+        return remaining > 0 ? "\(mapping)  +\(remaining) more" : mapping
+    }
+
+    var settingsMessage: String {
+        if corrections.count == 1, let correction = corrections.first {
+            return "Learned \(correction.original) → \(correction.replacement)"
+        }
+        return "Learned \(corrections.count) corrections"
+    }
+}
+
 struct WordDiff: Identifiable, Equatable, Sendable {
     enum Kind: Sendable {
         case unchanged

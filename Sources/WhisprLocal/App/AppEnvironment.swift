@@ -133,6 +133,14 @@ final class AppEnvironment {
                 style: preferences.indicatorStyle
             )
         }
+        coordinator.onCorrectionLearned = { [weak overlay, weak preferences] event in
+            guard let preferences else { return }
+            overlay?.showLearningNotice(
+                event,
+                position: preferences.overlayPosition,
+                style: preferences.indicatorStyle
+            )
+        }
         monitor.onPress = { [weak coordinator] in
             coordinator?.beginListening()
         }

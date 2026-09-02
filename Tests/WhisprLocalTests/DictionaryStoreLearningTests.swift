@@ -8,11 +8,18 @@ final class DictionaryStoreLearningTests: XCTestCase {
         let database = try LocalDatabase(path: temporaryDatabasePath())
         let store = DictionaryStore(database: database)
 
-        await store.learnCorrections([
+        let result = await store.learnCorrections([
             CorrectionCandidate(original: "Jason", replacement: "Jasen"),
             CorrectionCandidate(original: "WhisperLocal", replacement: "WhisprLocal")
         ])
 
+        let event = try XCTUnwrap(result)
+        XCTAssertEqual(event.corrections, [
+            CorrectionCandidate(original: "Jason", replacement: "Jasen"),
+            CorrectionCandidate(original: "WhisperLocal", replacement: "WhisprLocal")
+        ])
+        XCTAssertEqual(event.title, "Added to Dictionary")
+        XCTAssertEqual(event.detail, "Jason → Jasen  +1 more")
         XCTAssertEqual(store.entries.count, 2)
         XCTAssertTrue(store.entries.allSatisfy { $0.appBundleID == nil })
         XCTAssertTrue(store.entries.allSatisfy { $0.source == .learnedCorrection })
@@ -41,19 +48,24 @@ final class DictionaryStoreLearningTests: XCTestCase {
         )
         let store = DictionaryStore(database: database)
 
-        await store.learnCorrections([
+        let firstResult = await store.learnCorrections([
             CorrectionCandidate(original: "Jason", replacement: "Jasen"),
             CorrectionCandidate(original: "jason", replacement: "Jasen")
         ])
 
+        XCTAssertEqual(
+            firstResult?.corrections,
+            [CorrectionCandidate(original: "Jason", replacement: "Jasen")]
+        )
         var learned = try XCTUnwrap(store.entries.first { $0.id == id })
         XCTAssertEqual(learned.spokenAliases, ["Jayson", "Jason"])
         XCTAssertFalse(learned.isEnabled)
         XCTAssertEqual(learned.source, .manual)
 
-        await store.learnCorrections([
+        let duplicateResult = await store.learnCorrections([
             CorrectionCandidate(original: "Jason", replacement: "Jasen")
         ])
+        XCTAssertNil(duplicateResult)
         learned = try XCTUnwrap(store.entries.first { $0.id == id })
         XCTAssertEqual(learned.spokenAliases, ["Jayson", "Jason"])
         XCTAssertTrue(store.canUndoLatestLearning)
@@ -78,10 +90,11 @@ final class DictionaryStoreLearningTests: XCTestCase {
         )
         let store = DictionaryStore(database: database)
 
-        await store.learn(corrections: [
+        let result = await store.learn(corrections: [
             CorrectionCandidate(original: "Jason", replacement: "Jasen")
         ])
 
+        XCTAssertNil(result)
         XCTAssertEqual(store.entries.count, 1)
         let scoped = try XCTUnwrap(store.entries.first)
         XCTAssertEqual(scoped.appBundleID, "com.example.editor")
@@ -93,10 +106,14 @@ final class DictionaryStoreLearningTests: XCTestCase {
         let database = try LocalDatabase(path: temporaryDatabasePath())
         let store = DictionaryStore(database: database)
 
-        await store.learnCorrections([
+        let result = await store.learnCorrections([
             CorrectionCandidate(original: "api", replacement: "API")
         ])
 
+        XCTAssertEqual(
+            result?.corrections,
+            [CorrectionCandidate(original: "api", replacement: "API")]
+        )
         let entry = try XCTUnwrap(store.entries.first)
         XCTAssertEqual(entry.canonicalTerm, "API")
         XCTAssertEqual(entry.spokenAliases, [])
@@ -119,6 +136,37 @@ final class DictionaryStoreLearningTests: XCTestCase {
         XCTAssertNotNil(store.learnedNotice)
         await store.undoLatestLearning()
         XCTAssertTrue(store.entries.isEmpty)
+    }
+
+    func testLearningEventIncludesOnlyMappingsThatChangedTheDatabase() async throws {
+        let database = try LocalDatabase(path: temporaryDatabasePath())
+        try await database.addDictionaryEntry(
+            canonicalTerm: "Jasen",
+            spokenAliases: ["Jayson"],
+            kind: .name,
+            source: .manual
+        )
+        try await database.addDictionaryEntry(
+            canonicalTerm: "WhisprLocal",
+            appBundleID: "com.example.editor",
+            source: .manual
+        )
+        let store = DictionaryStore(database: database)
+
+        let result = await store.learnCorrections([
+            CorrectionCandidate(original: "Jason", replacement: "Jasen"),
+            CorrectionCandidate(original: "jason", replacement: "Jasen"),
+            CorrectionCandidate(original: "Whisper Local", replacement: "WhisprLocal"),
+            CorrectionCandidate(original: "croc", replacement: "grok")
+        ])
+
+        let event = try XCTUnwrap(result)
+        XCTAssertEqual(event.corrections, [
+            CorrectionCandidate(original: "Jason", replacement: "Jasen"),
+            CorrectionCandidate(original: "croc", replacement: "grok")
+        ])
+        XCTAssertEqual(event.detail, "Jason → Jasen  +1 more")
+        XCTAssertEqual(store.learnedNotice, "Learned 2 corrections")
     }
 
     private func temporaryDatabasePath() -> String {

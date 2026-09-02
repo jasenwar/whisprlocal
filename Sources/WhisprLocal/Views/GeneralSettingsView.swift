@@ -42,14 +42,14 @@ struct GeneralSettingsView: View {
             Section("Pasting") {
                 Toggle("Paste automatically", isOn: $preferences.autoPaste)
                 Toggle(
-                    "Keep last dictation on clipboard",
-                    isOn: $preferences.keepLastDictationOnClipboard
+                    "Restore previous clipboard after paste",
+                    isOn: $preferences.restorePreviousClipboardAfterPaste
                 )
                 .disabled(!preferences.autoPaste)
                 Text(
-                    preferences.keepLastDictationOnClipboard
-                        ? "The final text stays on the clipboard so you can paste it again."
-                        : "Your prior clipboard contents are restored after the automatic paste."
+                    preferences.restorePreviousClipboardAfterPaste
+                        ? "Recommended. WhisprLocal temporarily uses the clipboard to paste, then puts back every item and format that was there before dictation."
+                        : "The dictated text stays on the clipboard so you can paste it again. Anything copied before dictation is replaced."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)

@@ -205,9 +205,12 @@ final class DictionaryStore {
 
     /// Applies a bounded batch of analyzer-approved mappings to global vocabulary.
     /// Existing entries retain their enabled state, scope, source, and metadata.
-    func learnCorrections(_ corrections: [CorrectionCandidate]) async {
+    @discardableResult
+    func learnCorrections(
+        _ corrections: [CorrectionCandidate]
+    ) async -> DictionaryLearningEvent? {
         let normalized = Self.normalizedCorrections(corrections)
-        guard !normalized.isEmpty else { return }
+        guard !normalized.isEmpty else { return nil }
 
         do {
             // The observer may fire before the Dictionary view has loaded. Read the
@@ -283,19 +286,25 @@ final class DictionaryStore {
             guard !changes.isEmpty else {
                 entries = workingEntries
                 errorMessage = nil
-                return
+                return nil
             }
             entries = try await database.dictionaryEntries()
             latestLearningUndo = LearningUndoBatch(changes: changes)
-            learnedNotice = Self.learningNotice(for: learned)
+            let event = DictionaryLearningEvent(corrections: learned)
+            learnedNotice = event.settingsMessage
             errorMessage = nil
+            return event
         } catch {
             errorMessage = error.localizedDescription
+            return nil
         }
     }
 
     /// Compatibility spelling for post-paste monitor call sites.
-    func learn(corrections: [CorrectionCandidate]) async {
+    @discardableResult
+    func learn(
+        corrections: [CorrectionCandidate]
+    ) async -> DictionaryLearningEvent? {
         await learnCorrections(corrections)
     }
 
@@ -378,13 +387,6 @@ final class DictionaryStore {
             options: [.caseInsensitive, .diacriticInsensitive],
             locale: Locale(identifier: "en_US_POSIX")
         )
-    }
-
-    private static func learningNotice(for corrections: [CorrectionCandidate]) -> String {
-        if corrections.count == 1, let correction = corrections.first {
-            return "Learned \(correction.original) → \(correction.replacement)"
-        }
-        return "Learned \(corrections.count) corrections"
     }
 
     private static func suggestedKind(

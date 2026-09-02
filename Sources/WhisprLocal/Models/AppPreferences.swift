@@ -42,7 +42,10 @@ enum IndicatorStyle: String, CaseIterable, Identifiable, Sendable {
 final class AppPreferences {
     private enum Key {
         static let autoPaste = "autoPaste"
-        static let keepLastDictationOnClipboard = "keepLastDictationOnClipboard"
+        static let restorePreviousClipboardAfterPaste =
+            "restorePreviousClipboardAfterPaste"
+        static let legacyKeepLastDictationOnClipboard =
+            "keepLastDictationOnClipboard"
         // Use a new key so diagnostic builds that previously defaulted sounds
         // on migrate to the new silent-by-default behavior.
         static let sounds = "dictationSoundsV2"
@@ -70,11 +73,11 @@ final class AppPreferences {
         didSet { defaults.set(autoPaste, forKey: Key.autoPaste) }
     }
 
-    var keepLastDictationOnClipboard: Bool {
+    var restorePreviousClipboardAfterPaste: Bool {
         didSet {
             defaults.set(
-                keepLastDictationOnClipboard,
-                forKey: Key.keepLastDictationOnClipboard
+                restorePreviousClipboardAfterPaste,
+                forKey: Key.restorePreviousClipboardAfterPaste
             )
         }
     }
@@ -189,9 +192,26 @@ final class AppPreferences {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+
+        // The original preference was phrased in the opposite direction.
+        // Preserve an explicit existing choice while making clipboard
+        // restoration the clear, recommended default for new installations.
+        let storedLegacyKeepPreference = defaults.object(
+            forKey: Key.legacyKeepLastDictationOnClipboard
+        ) as? Bool
+        if let storedLegacyKeepPreference {
+            defaults.set(
+                !storedLegacyKeepPreference,
+                forKey: Key.restorePreviousClipboardAfterPaste
+            )
+            defaults.removeObject(
+                forKey: Key.legacyKeepLastDictationOnClipboard
+            )
+        }
+
         defaults.register(defaults: [
             Key.autoPaste: true,
-            Key.keepLastDictationOnClipboard: true,
+            Key.restorePreviousClipboardAfterPaste: true,
             Key.sounds: false,
             Key.pauseMediaDuringDictation: true,
             Key.microphoneMode: MicrophoneMode.systemDefault.rawValue,
@@ -217,8 +237,8 @@ final class AppPreferences {
             Key.learnFromCorrections: true,
         ])
         autoPaste = defaults.bool(forKey: Key.autoPaste)
-        keepLastDictationOnClipboard = defaults.bool(
-            forKey: Key.keepLastDictationOnClipboard
+        restorePreviousClipboardAfterPaste = defaults.bool(
+            forKey: Key.restorePreviousClipboardAfterPaste
         )
         sounds = defaults.bool(forKey: Key.sounds)
         pauseMediaDuringDictation = defaults.bool(

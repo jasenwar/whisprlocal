@@ -16,6 +16,7 @@ final class DictationCoordinator {
     private(set) var lastCorrectedText = ""
     var warningMessage: String?
     var onStateChange: ((DictationState) -> Void)?
+    var onCorrectionLearned: ((DictionaryLearningEvent) -> Void)?
 
     private var machine = DictationStateMachine()
     private let audio: any AudioCapturing
@@ -313,7 +314,7 @@ final class DictationCoordinator {
                     pasteText,
                     targetProcessIdentifier: targetProcessIdentifier,
                     restoringClipboard:
-                        !preferences.keepLastDictationOnClipboard
+                        preferences.restorePreviousClipboardAfterPaste
                 )
                 try Task.checkCancellation()
                 guard token == recordingToken,
@@ -434,7 +435,12 @@ final class DictationCoordinator {
                 "Post-paste edit produced \(corrections.count, privacy: .public) safe dictionary correction(s)"
             )
             Task { @MainActor [weak self] in
-                await self?.dictionaryStore.learnCorrections(corrections)
+                guard let self,
+                      let event = await dictionaryStore.learnCorrections(corrections)
+                else {
+                    return
+                }
+                onCorrectionLearned?(event)
             }
         }
     }

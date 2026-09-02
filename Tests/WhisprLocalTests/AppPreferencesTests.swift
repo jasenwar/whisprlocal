@@ -89,17 +89,43 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(reloaded.microphoneMode, .builtIn)
     }
 
-    func testKeepLastDictationOnClipboardDefaultsOnAndPersists() {
+    func testPreviousClipboardRestorationDefaultsOnAndPersists() {
         let suiteName = "WhisprLocalTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let preferences = AppPreferences(defaults: defaults)
-        XCTAssertTrue(preferences.keepLastDictationOnClipboard)
+        XCTAssertTrue(preferences.restorePreviousClipboardAfterPaste)
 
-        preferences.keepLastDictationOnClipboard = false
+        preferences.restorePreviousClipboardAfterPaste = false
         let reloaded = AppPreferences(defaults: defaults)
-        XCTAssertFalse(reloaded.keepLastDictationOnClipboard)
+        XCTAssertFalse(reloaded.restorePreviousClipboardAfterPaste)
+    }
+
+    func testLegacyClipboardPreferenceMigratesWithoutChangingBehavior() {
+        let keepSuiteName = "WhisprLocalTests.\(UUID())"
+        let keepDefaults = UserDefaults(suiteName: keepSuiteName)!
+        defer { keepDefaults.removePersistentDomain(forName: keepSuiteName) }
+        keepDefaults.set(true, forKey: "keepLastDictationOnClipboard")
+
+        let keepPreferences = AppPreferences(defaults: keepDefaults)
+        XCTAssertFalse(keepPreferences.restorePreviousClipboardAfterPaste)
+        XCTAssertNil(
+            keepDefaults.object(forKey: "keepLastDictationOnClipboard")
+        )
+
+        let restoreSuiteName = "WhisprLocalTests.\(UUID())"
+        let restoreDefaults = UserDefaults(suiteName: restoreSuiteName)!
+        defer {
+            restoreDefaults.removePersistentDomain(forName: restoreSuiteName)
+        }
+        restoreDefaults.set(false, forKey: "keepLastDictationOnClipboard")
+
+        let restorePreferences = AppPreferences(defaults: restoreDefaults)
+        XCTAssertTrue(restorePreferences.restorePreviousClipboardAfterPaste)
+        XCTAssertNil(
+            restoreDefaults.object(forKey: "keepLastDictationOnClipboard")
+        )
     }
 
     func testDictationSoundsDefaultOffAndPersist() {
@@ -193,6 +219,69 @@ final class AppPreferencesTests: XCTestCase {
         controller.update(for: .idle, position: .bottomCenter)
     }
 
+    func testLearningNoticeUsesSameNonactivatingOverlayController() async throws {
+        let controller = OverlayPanelController(
+            learningNoticeDuration: .milliseconds(20)
+        )
+        let identity = controller.contentControllerIdentity
+        let event = DictionaryLearningEvent(corrections: [
+            CorrectionCandidate(original: "Jason", replacement: "Jasen")
+        ])
+
+        controller.showLearningNotice(event, position: .bottomCenter)
+
+        XCTAssertEqual(controller.contentControllerIdentity, identity)
+        XCTAssertEqual(controller.displayedLearningEvent, event)
+        controller.update(for: .listening, position: .bottomCenter)
+        XCTAssertNil(controller.displayedLearningEvent)
+        XCTAssertEqual(controller.displayedState, .listening)
+        XCTAssertEqual(controller.queuedLearningEventCount, 1)
+        controller.update(for: .idle, position: .bottomCenter)
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertNil(controller.displayedLearningEvent)
+    }
+
+    func testLearningNoticeWaitsForIdleAndDismisses() async throws {
+        let controller = OverlayPanelController(
+            learningNoticeDuration: .milliseconds(30)
+        )
+        let event = DictionaryLearningEvent(corrections: [
+            CorrectionCandidate(original: "croc", replacement: "grok")
+        ])
+
+        controller.update(for: .transcribing, position: .bottomCenter)
+        controller.showLearningNotice(event, position: .bottomCenter)
+        XCTAssertNil(controller.displayedLearningEvent)
+        XCTAssertEqual(controller.queuedLearningEventCount, 1)
+
+        controller.update(for: .idle, position: .bottomCenter)
+        XCTAssertEqual(controller.displayedLearningEvent, event)
+        XCTAssertEqual(controller.queuedLearningEventCount, 0)
+
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertNil(controller.displayedLearningEvent)
+    }
+
+    func testLearningBatchShowsEveryExactMappingInOrder() async throws {
+        let controller = OverlayPanelController(
+            learningNoticeDuration: .milliseconds(100)
+        )
+        let first = CorrectionCandidate(original: "Jason", replacement: "Jasen")
+        let second = CorrectionCandidate(original: "croc", replacement: "grok")
+
+        controller.showLearningNotice(
+            DictionaryLearningEvent(corrections: [first, second]),
+            position: .bottomCenter
+        )
+
+        XCTAssertEqual(controller.displayedLearningEvent?.corrections, [first])
+        XCTAssertEqual(controller.queuedLearningEventCount, 1)
+        try await Task.sleep(for: .milliseconds(130))
+        XCTAssertEqual(controller.displayedLearningEvent?.corrections, [second])
+        try await Task.sleep(for: .milliseconds(120))
+        XCTAssertNil(controller.displayedLearningEvent)
+    }
+
     func testOverlayCornersRenderFullyTransparent() throws {
         let view = NSHostingView(
             rootView: DictationOverlayView(state: .listening)
@@ -234,4 +323,45 @@ final class AppPreferencesTests: XCTestCase {
             )
         }
     }
+
+    func testLearningOverlayCornersRenderFullyTransparent() throws {
+        let event = DictionaryLearningEvent(corrections: [
+            CorrectionCandidate(original: "Jason", replacement: "Jasen")
+        ])
+        let view = NSHostingView(
+            rootView: DictationOverlayView(learningEvent: event)
+        )
+        view.frame = NSRect(
+            origin: .zero,
+            size: DictationOverlayView.learningPillSize
+        )
+        view.layoutSubtreeIfNeeded()
+
+        let representation = try XCTUnwrap(
+            view.bitmapImageRepForCachingDisplay(in: view.bounds)
+        )
+        view.cacheDisplay(in: view.bounds, to: representation)
+
+        let inset = 8
+        let samplePoints = [
+            NSPoint(x: inset, y: inset),
+            NSPoint(x: representation.pixelsWide - 1 - inset, y: inset),
+            NSPoint(x: inset, y: representation.pixelsHigh - 1 - inset),
+            NSPoint(
+                x: representation.pixelsWide - 1 - inset,
+                y: representation.pixelsHigh - 1 - inset
+            ),
+        ]
+
+        for point in samplePoints {
+            let color = try XCTUnwrap(
+                representation.colorAt(
+                    x: Int(point.x),
+                    y: Int(point.y)
+                )
+            )
+            XCTAssertEqual(color.alphaComponent, 0, accuracy: 1.0 / 255.0)
+        }
+    }
+
 }

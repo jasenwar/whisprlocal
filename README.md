@@ -31,7 +31,9 @@ deletion, or be limited to one running application. With **Learn from
 corrections** enabled, WhisprLocal can also learn a high-confidence spelling,
 name, acronym, or compact phrase correction when you edit the text immediately
 after it is pasted. Observation is brief and read-only, secure or unsupported
-fields are skipped, and the Dictionary provides an immediate Undo action.
+fields are skipped, and the Dictionary provides an immediate Undo action. Once
+the database confirms a new mapping, the current pill or notch briefly shows
+exactly what was added; active dictation always takes priority over that notice.
 After transcription,
 WhisprLocal applies those variants deterministically before cleanup, so they
 still work in Fully Local mode and when cleanup is off. History can suggest
@@ -53,6 +55,13 @@ runs concurrently so it cannot delay microphone startup. A narrowly adapted
 copy of OpenWhispr's state-aware MediaRemote bridge performs explicit Pause
 and Play commands locally, avoiding unreliable direct private-framework state
 queries and unsafe play/pause toggles.
+
+**Restore previous clipboard after paste** is enabled by default. WhisprLocal
+temporarily places the dictation on the pasteboard, posts Command-V, and then
+restores every item and data format that was present beforehand. Restoration
+runs after the target app has had time to consume the paste and is skipped if
+you copy something new during that brief handoff window. Turning the setting
+off intentionally leaves the latest dictation on the clipboard.
 
 ## Requirements
 

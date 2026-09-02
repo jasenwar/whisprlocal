@@ -46,7 +46,10 @@ truth; the generated Xcode project is intentionally not committed.
 8. `SnippetExpander` performs a single Unicode-aware, whole-phrase,
    longest-first expansion pass after cleanup.
 9. `SystemPasteService` snapshots every pasteboard item/type, posts Command-V,
-   waits for the destination to consume it, and restores the snapshot.
+   and schedules a guarded restore after the destination has consumed it. A
+   transient ownership marker prevents the restore from overwriting anything
+   the user copies during the handoff, and restoration does not hold up the
+   visible dictation pipeline.
 10. `LocalDatabase` stores the raw and corrected text and processing metadata.
 
 `DictationCoordinator` is the only owner of the state machine:
@@ -102,7 +105,10 @@ just pasted. High-confidence spelling, name, acronym, and compact phrase edits
 can become global dictionary aliases. Secure fields, unsupported editors,
 focus drift, ambiguous rewrites, grammar-only changes, numbers, URLs, paths,
 and commands fail closed. Surrounding document text is neither logged nor
-persisted, and the latest learned batch can be undone from Dictionary.
+persisted, and the latest learned batch can be undone from Dictionary. A typed
+learning event is emitted only after the database refresh succeeds. The shared
+nonactivating overlay presents its confirmed mappings transiently, queues them
+behind active dictation, and never writes those private terms to system logs.
 
 ## Network boundary
 

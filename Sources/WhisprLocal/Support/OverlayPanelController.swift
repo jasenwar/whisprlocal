@@ -7,11 +7,20 @@ final class OverlayPanelController {
 
     private let panel: NSPanel
     private let hosting: NSHostingController<DictationOverlayView>
+    private let learningNoticeDuration: Duration
     private var isPresented = false
     private var lastPosition: OverlayPosition?
     private var lastStyle: IndicatorStyle?
+    private var lastSize: NSSize?
+    private var currentState: DictationState = .idle
+    private var activeLearningEvent: DictionaryLearningEvent?
+    private var pendingLearningEvents: [DictionaryLearningEvent] = []
+    private var learningDismissalTask: Task<Void, Never>?
+    private var preferredPosition: OverlayPosition = .topCenter
+    private var preferredStyle: IndicatorStyle = .floatingPill
 
-    init() {
+    init(learningNoticeDuration: Duration = .seconds(3)) {
+        self.learningNoticeDuration = learningNoticeDuration
         let hosting = NSHostingController(
             rootView: DictationOverlayView(state: .preparing)
         )
@@ -45,31 +54,95 @@ final class OverlayPanelController {
         position: OverlayPosition,
         style: IndicatorStyle = .floatingPill
     ) {
+        currentState = state
+        preferredPosition = position
+        preferredStyle = style
+
         guard state != .idle else {
-            if isPresented {
-                panel.orderOut(nil)
-                isPresented = false
+            if activeLearningEvent != nil { return }
+            if !pendingLearningEvents.isEmpty {
+                showNextLearningNotice()
+            } else {
+                hidePanel()
             }
             return
         }
 
+        if let activeLearningEvent {
+            pendingLearningEvents.insert(activeLearningEvent, at: 0)
+            self.activeLearningEvent = nil
+        }
+        learningDismissalTask?.cancel()
+        learningDismissalTask = nil
+        present(
+            .dictation(state),
+            position: position,
+            style: style
+        )
+    }
+
+    /// Shows a database-confirmed learning event without activating WhisprLocal.
+    /// Active dictation always wins; interrupted notices resume after idle.
+    func showLearningNotice(
+        _ event: DictionaryLearningEvent,
+        position: OverlayPosition,
+        style: IndicatorStyle = .floatingPill
+    ) {
+        guard !event.corrections.isEmpty else { return }
+        preferredPosition = position
+        preferredStyle = style
+
+        let notices = event.corrections.count == 1
+            ? [event]
+            : event.corrections.map {
+                DictionaryLearningEvent(corrections: [$0])
+            }
+        for notice in notices {
+            enqueueLearningNotice(notice)
+        }
+    }
+
+    private func enqueueLearningNotice(_ event: DictionaryLearningEvent) {
+        if currentState != .idle || activeLearningEvent != nil {
+            pendingLearningEvents.append(event)
+        } else {
+            displayLearningNotice(event)
+        }
+    }
+
+    private func present(
+        _ presentation: DictationOverlayPresentation,
+        position: OverlayPosition,
+        style: IndicatorStyle
+    ) {
         guard let screen = targetScreen(for: style) else { return }
-        let notchLayout = style == .notch
+        var notchLayout = style == .notch
             ? notchLayout(for: screen)
             : .fallback
+        if style == .notch, presentation.isLearningNotice {
+            notchLayout = NotchOverlayLayout(
+                width: notchLayout.width,
+                topInset: notchLayout.topInset,
+                dropDownHeight: 54
+            )
+        }
         let size = DictationOverlayView.size(
-            for: style,
+            for: presentation,
+            style: style,
             notchLayout: notchLayout
         )
         hosting.rootView = DictationOverlayView(
-            state: state,
+            presentation: presentation,
             style: style,
             notchLayout: notchLayout
         )
         hosting.view.frame = NSRect(origin: .zero, size: size)
         panel.setContentSize(size)
         panel.level = style == .notch ? .screenSaver : .floating
-        if !isPresented || lastPosition != position || lastStyle != style {
+        if !isPresented
+            || lastPosition != position
+            || lastStyle != style
+            || lastSize != size {
             placePanel(
                 size: size,
                 at: position,
@@ -78,6 +151,7 @@ final class OverlayPanelController {
             )
             lastPosition = position
             lastStyle = style
+            lastSize = size
         }
         if !isPresented {
             presentPanel(style: style, on: screen)
@@ -91,6 +165,60 @@ final class OverlayPanelController {
 
     var displayedState: DictationState {
         hosting.rootView.state
+    }
+
+    var displayedLearningEvent: DictionaryLearningEvent? {
+        activeLearningEvent
+    }
+
+    var queuedLearningEventCount: Int {
+        pendingLearningEvents.count
+    }
+
+    private func displayLearningNotice(_ event: DictionaryLearningEvent) {
+        activeLearningEvent = event
+        present(
+            .dictionaryLearning(event),
+            position: preferredPosition,
+            style: preferredStyle
+        )
+
+        learningDismissalTask?.cancel()
+        let duration = learningNoticeDuration
+        learningDismissalTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: duration)
+            } catch {
+                return
+            }
+            self?.finishLearningNotice(id: event.id)
+        }
+    }
+
+    private func finishLearningNotice(id: UUID) {
+        guard activeLearningEvent?.id == id else { return }
+        activeLearningEvent = nil
+        learningDismissalTask = nil
+        if currentState == .idle, !pendingLearningEvents.isEmpty {
+            showNextLearningNotice()
+        } else if currentState == .idle {
+            hidePanel()
+        }
+    }
+
+    private func showNextLearningNotice() {
+        guard currentState == .idle,
+              activeLearningEvent == nil,
+              !pendingLearningEvents.isEmpty else {
+            return
+        }
+        displayLearningNotice(pendingLearningEvents.removeFirst())
+    }
+
+    private func hidePanel() {
+        guard isPresented else { return }
+        panel.orderOut(nil)
+        isPresented = false
     }
 
     private func placePanel(
